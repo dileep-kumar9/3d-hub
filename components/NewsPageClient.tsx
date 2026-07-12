@@ -352,12 +352,23 @@ export default function NewsPageClient() {
         `/api/news?${params.toString()}`,
         { cache: "no-store" }
       );
-      const data =
-        (await response.json()) as NewsResponse;
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
+      const data = contentType.includes(
+        "application/json"
+      )
+        ? ((await response.json()) as NewsResponse)
+        : ({
+            error:
+              "The news service returned an unexpected response.",
+          } as NewsResponse);
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Unable to load news."
+          data.error ||
+            "Unable to load news right now."
         );
       }
 
@@ -388,10 +399,18 @@ export default function NewsPageClient() {
       setProvider(data.provider || "");
       setLoadedRange(range);
     } catch (requestError) {
-      setError(
+      const message =
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load news."
+          : "Unable to load news.";
+
+      setError(
+        message === "fetch failed" ||
+          message.includes(
+            "Failed to fetch"
+          )
+          ? "The live news service could not be reached. Please try again."
+          : message
       );
     } finally {
       setLoading(false);
