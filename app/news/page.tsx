@@ -11,9 +11,9 @@ export const metadata: Metadata = {
       "https://3d-hub-lac.vercel.app/news",
   },
   openGraph: {
-    title: "3D Hub News",
+    title: "News",
     description:
-      "A timeline-first news reader with summaries, images, related media, and text-to-speech.",
+      "Browse Google News headlines by a required time period and one selected category.",
     url: "https://3d-hub-lac.vercel.app/news",
     type: "website",
   },
