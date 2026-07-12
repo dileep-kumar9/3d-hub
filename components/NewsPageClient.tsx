@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import {
-  FormEvent,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import type { FormEvent } from "react";
 
 import NewsAudioPlayer, {
   type NewsSpeechRequest,
@@ -15,7 +15,6 @@ import {
   NEWS_CATEGORIES,
   NEWS_CATEGORY_LABELS,
   cacheNewsArticles,
-  estimateReadingMinutes,
   formatNewsDate,
   getNewsBookmarks,
   getNewsHistory,
@@ -40,37 +39,184 @@ type DateRange = {
   label: string;
 };
 
+type StoryCluster = {
+  id: string;
+  primary: NewsArticle;
+  related: NewsArticle[];
+};
+
 const PERIOD_OPTIONS: Array<{
   id: NewsPeriod;
   label: string;
-  helper: string;
 }> = [
-  {
-    id: "today",
-    label: "Day",
-    helper: "Choose one day",
-  },
-  {
-    id: "week",
-    label: "Week",
-    helper: "Choose a week",
-  },
-  {
-    id: "month",
-    label: "Month",
-    helper: "Choose a month",
-  },
-  {
-    id: "year",
-    label: "Year",
-    helper: "Choose a year",
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    helper: "Choose a date range",
-  },
+  { id: "today", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+  { id: "custom", label: "Custom" },
 ];
+
+const CATEGORY_ICONS: Record<
+  NewsCategory,
+  string
+> = {
+  top: "📰",
+  local: "📍",
+  india: "🇮🇳",
+  world: "🌍",
+  technology: "💻",
+  business: "📈",
+  sports: "🏏",
+  entertainment: "🎬",
+  health: "✚",
+};
+
+const CATEGORY_TOPICS: Record<
+  NewsCategory,
+  string[]
+> = {
+  top: [
+    "Latest",
+    "Breaking",
+    "Politics",
+    "Weather",
+    "Education",
+  ],
+  local: [
+    "Latest",
+    "Andhra Pradesh",
+    "Telangana",
+    "Hyderabad",
+    "Visakhapatnam",
+  ],
+  india: [
+    "Latest",
+    "Politics",
+    "Government",
+    "Education",
+    "Weather",
+  ],
+  world: [
+    "Latest",
+    "Asia",
+    "Europe",
+    "Americas",
+    "Middle East",
+  ],
+  technology: [
+    "Latest",
+    "Artificial Intelligence",
+    "Gadgets",
+    "Software",
+    "Science",
+  ],
+  business: [
+    "Latest",
+    "Economy",
+    "Markets",
+    "Companies",
+    "Personal Finance",
+  ],
+  sports: [
+    "Latest",
+    "Cricket",
+    "Football",
+    "Badminton",
+    "Tennis",
+  ],
+  entertainment: [
+    "Latest",
+    "Telugu Cinema",
+    "Movies",
+    "Television",
+    "Celebrities",
+  ],
+  health: [
+    "Latest",
+    "Medication",
+    "Healthcare",
+    "Mental Health",
+    "Nutrition",
+    "Fitness",
+  ],
+};
+
+const TITLE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "has",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "with",
+]);
+
+function SearchIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        cx="11"
+        cy="11"
+        r="6.5"
+      />
+      <path d="m16 16 4.2 4.2" />
+    </svg>
+  );
+}
+
+function BookmarkIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M6.5 3.5h11v17l-5.5-3.3-5.5 3.3z" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M4 4v5h5" />
+      <path d="M5.2 8.8A8 8 0 1 1 4 13" />
+      <path d="M12 8v5l3 2" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M4 10v4h4l5 4V6l-5 4z" />
+      <path d="M16 9.5a4 4 0 0 1 0 5" />
+    </svg>
+  );
+}
 
 function toDateInput(date: Date) {
   const year = date.getFullYear();
@@ -114,6 +260,7 @@ function resolveDateRange({
 
   if (period === "today") {
     if (!day) return null;
+
     return {
       start: day,
       end: day,
@@ -127,6 +274,7 @@ function resolveDateRange({
 
   if (period === "week") {
     if (!weekDay) return null;
+
     const selected = new Date(
       `${weekDay}T12:00:00`
     );
@@ -148,6 +296,7 @@ function resolveDateRange({
 
   if (period === "month") {
     if (!month) return null;
+
     const [selectedYear, selectedMonth] =
       month.split("-").map(Number);
     const end = new Date(
@@ -172,6 +321,7 @@ function resolveDateRange({
 
   if (period === "year") {
     if (!year) return null;
+
     return {
       start: `${year}-01-01`,
       end: `${year}-12-31`,
@@ -198,6 +348,115 @@ function resolveDateRange({
   };
 }
 
+function titleTerms(title: string) {
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(
+        (word) =>
+          word.length > 2 &&
+          !TITLE_STOP_WORDS.has(word)
+      )
+  );
+}
+
+function titleSimilarity(
+  first: string,
+  second: string
+) {
+  const firstTerms = titleTerms(first);
+  const secondTerms = titleTerms(second);
+
+  if (
+    firstTerms.size === 0 ||
+    secondTerms.size === 0
+  ) {
+    return 0;
+  }
+
+  let matches = 0;
+
+  for (const term of firstTerms) {
+    if (secondTerms.has(term)) {
+      matches += 1;
+    }
+  }
+
+  return (
+    matches /
+    Math.min(
+      firstTerms.size,
+      secondTerms.size
+    )
+  );
+}
+
+function buildStoryClusters(
+  articles: NewsArticle[]
+): StoryCluster[] {
+  const remaining = [...articles];
+  const clusters: StoryCluster[] = [];
+
+  while (remaining.length > 0) {
+    const primary = remaining.shift();
+
+    if (!primary) break;
+
+    const related: NewsArticle[] = [];
+
+    for (
+      let index = 0;
+      index < remaining.length &&
+      related.length < 3;
+      index += 1
+    ) {
+      if (
+        titleSimilarity(
+          primary.title,
+          remaining[index].title
+        ) >= 0.28
+      ) {
+        related.push(
+          remaining.splice(index, 1)[0]
+        );
+        index -= 1;
+      }
+    }
+
+    while (
+      related.length < 3 &&
+      remaining.length > 0
+    ) {
+      related.push(remaining.shift()!);
+    }
+
+    clusters.push({
+      id: primary.id,
+      primary,
+      related,
+    });
+  }
+
+  return clusters;
+}
+
+function sourceFavicon(article: NewsArticle) {
+  const source =
+    article.sourceUrl || article.url;
+
+  try {
+    const domain = new URL(source).hostname;
+
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(
+      domain
+    )}&sz=64`;
+  } catch {
+    return "";
+  }
+}
+
 function NewsImage({
   article,
 }: {
@@ -207,22 +466,43 @@ function NewsImage({
 
   if (!article.imageUrl || failed) {
     return (
-      <div className="news-card-image news-card-image-fallback">
-        <span>3D</span>
-        <strong>NEWS</strong>
+      <div className="google-news-image-fallback">
+        <span>📰</span>
       </div>
     );
   }
 
   return (
     <img
-      className="news-card-image"
+      className="google-news-main-image"
       src={article.imageUrl}
       alt=""
       loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+function SourceLabel({
+  article,
+}: {
+  article: NewsArticle;
+}) {
+  const favicon = sourceFavicon(article);
+
+  return (
+    <span className="google-news-source">
+      {favicon && (
+        <img
+          src={favicon}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      )}
+      <strong>{article.sourceName}</strong>
+    </span>
   );
 }
 
@@ -236,11 +516,17 @@ export default function NewsPageClient() {
     () => todayInput.slice(0, 7),
     [todayInput]
   );
-  const currentYear = String(today.getFullYear());
+  const currentYear = String(
+    today.getFullYear()
+  );
 
   const [period, setPeriod] = useState<
     NewsPeriod | ""
   >("");
+  const [category, setCategory] = useState<
+    NewsCategory | ""
+  >("");
+  const [topic, setTopic] = useState("Latest");
   const [day, setDay] = useState(todayInput);
   const [weekDay, setWeekDay] =
     useState(todayInput);
@@ -252,8 +538,6 @@ export default function NewsPageClient() {
     useState(todayInput);
   const [customEnd, setCustomEnd] =
     useState(todayInput);
-  const [category, setCategory] =
-    useState<NewsCategory>("top");
   const [query, setQuery] = useState("");
   const [articles, setArticles] = useState<
     NewsArticle[]
@@ -269,6 +553,8 @@ export default function NewsPageClient() {
   >(null);
   const [loadedRange, setLoadedRange] =
     useState<DateRange | null>(null);
+  const [loadedCategory, setLoadedCategory] =
+    useState<NewsCategory | null>(null);
   const [speechRequest, setSpeechRequest] =
     useState<NewsSpeechRequest | null>(null);
   const [bookmarkVersion, setBookmarkVersion] =
@@ -302,6 +588,7 @@ export default function NewsPageClient() {
 
   const years = useMemo(() => {
     const first = today.getFullYear();
+
     return Array.from(
       { length: 10 },
       (_, index) => String(first - index)
@@ -314,6 +601,29 @@ export default function NewsPageClient() {
       ? getNewsHistory()
       : articles;
 
+  const clusters = useMemo(
+    () => buildStoryClusters(displayedArticles),
+    [displayedArticles, bookmarkVersion]
+  );
+
+  const activeDisplayCategory =
+    loadedCategory ||
+    (category || null);
+
+  const selectedTopics = category
+    ? CATEGORY_TOPICS[category]
+    : [];
+
+  function clearLoadedResults() {
+    setArticles([]);
+    setLoadedRange(null);
+    setLoadedCategory(null);
+    setNextPage(null);
+    setProvider("");
+    setNotice("");
+    setError("");
+  }
+
   async function fetchNews({
     reset,
     page,
@@ -323,7 +633,14 @@ export default function NewsPageClient() {
   }) {
     if (!range) {
       setError(
-        "Choose a day, week, month, year, or custom range first."
+        "Select a time period and date before searching."
+      );
+      return;
+    }
+
+    if (!category) {
+      setError(
+        "Select exactly one news category before searching."
       );
       return;
     }
@@ -334,17 +651,29 @@ export default function NewsPageClient() {
     setError("");
 
     try {
+      const topicQuery =
+        topic !== "Latest" ? topic : "";
+      const combinedQuery = [
+        topicQuery,
+        query.trim(),
+      ]
+        .filter(Boolean)
+        .join(" ");
+
       const params = new URLSearchParams({
         category,
-        start: range!.start,
-        end: range!.end,
+        start: range.start,
+        end: range.end,
       });
 
-      if (query.trim()) {
-        params.set("q", query.trim());
+      if (combinedQuery) {
+        params.set("q", combinedQuery);
       }
 
-      if (page !== undefined && page !== null) {
+      if (
+        page !== undefined &&
+        page !== null
+      ) {
         params.set("page", String(page));
       }
 
@@ -362,17 +691,19 @@ export default function NewsPageClient() {
         ? ((await response.json()) as NewsResponse)
         : ({
             error:
-              "The news service returned an unexpected response.",
+              "Google News returned an unexpected response.",
           } as NewsResponse);
 
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "Unable to load news right now."
+            "Unable to load Google News right now."
         );
       }
 
-      const incoming = Array.isArray(data.articles)
+      const incoming = Array.isArray(
+        data.articles
+      )
         ? data.articles
         : [];
 
@@ -398,18 +729,17 @@ export default function NewsPageClient() {
       setNotice(data.notice || "");
       setProvider(data.provider || "");
       setLoadedRange(range);
+      setLoadedCategory(category);
     } catch (requestError) {
       const message =
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load news.";
+          : "Unable to load Google News.";
 
       setError(
         message === "fetch failed" ||
-          message.includes(
-            "Failed to fetch"
-          )
-          ? "The live news service could not be reached. Please try again."
+          message.includes("Failed to fetch")
+          ? "Google News could not be reached. Please try again."
           : message
       );
     } finally {
@@ -427,7 +757,19 @@ export default function NewsPageClient() {
     void fetchNews({ reset: true });
   }
 
-  function listenToArticle(article: NewsArticle) {
+  function chooseCategory(
+    nextCategory: NewsCategory
+  ) {
+    setCategory(nextCategory);
+    setTopic("Latest");
+    setShowBookmarks(false);
+    setShowHistory(false);
+    clearLoadedResults();
+  }
+
+  function listenToArticle(
+    article: NewsArticle
+  ) {
     setSpeechRequest({
       id: `${article.id}-${Date.now()}`,
       label: article.title,
@@ -440,7 +782,9 @@ export default function NewsPageClient() {
 
   function bookmark(article: NewsArticle) {
     toggleNewsBookmark(article);
-    setBookmarkVersion((value) => value + 1);
+    setBookmarkVersion(
+      (value) => value + 1
+    );
   }
 
   function openBookmarks() {
@@ -460,52 +804,91 @@ export default function NewsPageClient() {
   }
 
   return (
-    <section className="news-shell news-home-shell">
-      <header className="news-hero">
-        <div className="news-hero-kicker">
-          Independent news reader
-        </div>
-        <h1>3D Hub News</h1>
-        <p>
-          Choose a time period first, then read concise
-          text stories with related images, video when
-          available, and selectable text-to-speech.
-        </p>
-      </header>
-
+    <section className="news-shell news-google-shell">
       <form
-        className="news-control-panel"
+        className="google-news-topbar"
         onSubmit={submitNews}
       >
-        <div className="news-control-heading">
-          <div>
-            <span>Step 1</span>
-            <h2>Select a time period</h2>
-          </div>
+        <div className="google-news-searchbox">
+          <SearchIcon />
 
-          <div className="news-library-buttons">
-            <button
-              type="button"
-              className={`news-bookmarks-button ${
-                showBookmarks ? "active" : ""
-              }`}
-              onClick={openBookmarks}
-            >
-              Saved stories
-            </button>
-            <button
-              type="button"
-              className={`news-bookmarks-button ${
-                showHistory ? "active" : ""
-              }`}
-              onClick={openHistory}
-            >
-              Reading history
-            </button>
-          </div>
+          <input
+            type="search"
+            value={query}
+            placeholder="Search for topics, locations and sources"
+            aria-label="Search Google News"
+            onChange={(event) =>
+              setQuery(event.target.value)
+            }
+          />
+
+          <button
+            type="submit"
+            disabled={
+              !range ||
+              !category ||
+              loading
+            }
+            aria-label="Search news"
+          >
+            {loading ? "Loading…" : "Search"}
+          </button>
         </div>
 
-        <div className="news-period-grid">
+        <div className="google-news-library-actions">
+          <button
+            type="button"
+            className={
+              showBookmarks ? "active" : ""
+            }
+            onClick={openBookmarks}
+            title="Saved stories"
+          >
+            <BookmarkIcon />
+            <span>Saved</span>
+          </button>
+
+          <button
+            type="button"
+            className={
+              showHistory ? "active" : ""
+            }
+            onClick={openHistory}
+            title="Reading history"
+          >
+            <HistoryIcon />
+            <span>History</span>
+          </button>
+        </div>
+      </form>
+
+      <nav
+        className="google-news-category-nav"
+        aria-label="News categories"
+      >
+        {NEWS_CATEGORIES.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={
+              category === item
+                ? "active"
+                : ""
+            }
+            aria-pressed={category === item}
+            onClick={() =>
+              chooseCategory(item)
+            }
+          >
+            {NEWS_CATEGORY_LABELS[item]}
+          </button>
+        ))}
+      </nav>
+
+      <div className="google-news-filterbar">
+        <div className="google-news-periods">
+          <strong>Time period</strong>
+
           {PERIOD_OPTIONS.map((option) => (
             <button
               type="button"
@@ -519,225 +902,252 @@ export default function NewsPageClient() {
                 setPeriod(option.id);
                 setShowBookmarks(false);
                 setShowHistory(false);
-                setArticles([]);
-                setLoadedRange(null);
-                setError("");
+                clearLoadedResults();
               }}
             >
-              <strong>{option.label}</strong>
-              <span>{option.helper}</span>
+              {option.label}
             </button>
           ))}
         </div>
 
-        {period && (
-          <div className="news-date-fields">
-            {period === "today" && (
-              <label>
-                <span>Choose day</span>
-                <input
-                  type="date"
-                  value={day}
-                  max={todayInput}
-                  onChange={(event) =>
-                    setDay(event.target.value)
-                  }
-                />
-              </label>
-            )}
+        <div className="google-news-date-control">
+          {!period && (
+            <span>
+              Select a period
+            </span>
+          )}
 
-            {period === "week" && (
-              <label>
-                <span>Choose any day in the week</span>
-                <input
-                  type="date"
-                  value={weekDay}
-                  max={todayInput}
-                  onChange={(event) =>
-                    setWeekDay(event.target.value)
-                  }
-                />
-              </label>
-            )}
+          {period === "today" && (
+            <input
+              type="date"
+              value={day}
+              max={todayInput}
+              aria-label="Choose day"
+              onChange={(event) =>
+                setDay(event.target.value)
+              }
+            />
+          )}
 
-            {period === "month" && (
-              <label>
-                <span>Choose month</span>
-                <input
-                  type="month"
-                  value={month}
-                  max={currentMonth}
-                  onChange={(event) =>
-                    setMonth(event.target.value)
-                  }
-                />
-              </label>
-            )}
+          {period === "week" && (
+            <input
+              type="date"
+              value={weekDay}
+              max={todayInput}
+              aria-label="Choose a day in the week"
+              onChange={(event) =>
+                setWeekDay(
+                  event.target.value
+                )
+              }
+            />
+          )}
 
-            {period === "year" && (
-              <label>
-                <span>Choose year</span>
-                <select
-                  value={year}
-                  onChange={(event) =>
-                    setYear(event.target.value)
-                  }
+          {period === "month" && (
+            <input
+              type="month"
+              value={month}
+              max={currentMonth}
+              aria-label="Choose month"
+              onChange={(event) =>
+                setMonth(
+                  event.target.value
+                )
+              }
+            />
+          )}
+
+          {period === "year" && (
+            <select
+              value={year}
+              aria-label="Choose year"
+              onChange={(event) =>
+                setYear(
+                  event.target.value
+                )
+              }
+            >
+              {years.map((option) => (
+                <option
+                  key={option}
+                  value={option}
                 >
-                  {years.map((option) => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+                  {option}
+                </option>
+              ))}
+            </select>
+          )}
 
-            {period === "custom" && (
-              <>
-                <label>
-                  <span>From</span>
-                  <input
-                    type="date"
-                    value={customStart}
-                    max={customEnd || todayInput}
-                    onChange={(event) =>
-                      setCustomStart(
-                        event.target.value
-                      )
-                    }
-                  />
-                </label>
+          {period === "custom" && (
+            <div className="google-news-custom-range">
+              <input
+                type="date"
+                value={customStart}
+                max={customEnd || todayInput}
+                aria-label="Start date"
+                onChange={(event) =>
+                  setCustomStart(
+                    event.target.value
+                  )
+                }
+              />
 
-                <label>
-                  <span>To</span>
-                  <input
-                    type="date"
-                    value={customEnd}
-                    min={customStart}
-                    max={todayInput}
-                    onChange={(event) =>
-                      setCustomEnd(
-                        event.target.value
-                      )
-                    }
-                  />
-                </label>
-              </>
-            )}
+              <span>to</span>
+
+              <input
+                type="date"
+                value={customEnd}
+                min={customStart}
+                max={todayInput}
+                aria-label="End date"
+                onChange={(event) =>
+                  setCustomEnd(
+                    event.target.value
+                  )
+                }
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="google-news-required-status">
+          {!category
+            ? "Choose one category"
+            : !range
+              ? "Choose a time period"
+              : "Ready to search"}
+        </div>
+      </div>
+
+      {!showBookmarks &&
+        !showHistory &&
+        activeDisplayCategory && (
+        <header className="google-news-topic-header">
+          <div className="google-news-topic-title">
+            <span aria-hidden="true">
+              {
+                CATEGORY_ICONS[
+                  activeDisplayCategory
+                ]
+              }
+            </span>
+
+            <h1>
+              {
+                NEWS_CATEGORY_LABELS[
+                  activeDisplayCategory
+                ]
+              }
+            </h1>
           </div>
-        )}
 
-        <div className="news-filter-block">
-          <div>
-            <span>Step 2</span>
-            <h2>Choose a category</h2>
-          </div>
-
-          <div className="news-category-row">
-            {NEWS_CATEGORIES.map((item) => (
+          <div className="google-news-topic-chips">
+            {CATEGORY_TOPICS[
+              activeDisplayCategory
+            ].map((item) => (
               <button
-                key={item}
                 type="button"
+                key={item}
                 className={
-                  category === item
+                  topic === item
                     ? "active"
                     : ""
                 }
-                onClick={() =>
-                  setCategory(item)
-                }
+                onClick={() => {
+                  setTopic(item);
+                  setShowBookmarks(false);
+                  setShowHistory(false);
+                  clearLoadedResults();
+                }}
               >
-                {NEWS_CATEGORY_LABELS[item]}
+                {item}
               </button>
             ))}
           </div>
-        </div>
+        </header>
+      )}
 
-        <div className="news-search-row">
-          <label>
-            <span>Optional keyword</span>
-            <input
-              type="search"
-              value={query}
-              placeholder="Example: AI, cricket, Andhra Pradesh"
-              onChange={(event) =>
-                setQuery(event.target.value)
-              }
-            />
-          </label>
-
-          <button
-            type="submit"
-            className="news-load-button"
-            disabled={!range || loading}
-          >
-            {loading ? "Loading…" : "Show news"}
-          </button>
-        </div>
-      </form>
-
-      <div className="news-results">
-        {showBookmarks ? (
-          <div className="news-results-heading">
+      <main className="google-news-results">
+        {showBookmarks && (
+          <div className="google-news-view-heading">
             <div>
-              <span>Your private news list</span>
-              <h2>Saved stories</h2>
+              <BookmarkIcon />
+              <h1>Saved stories</h1>
             </div>
-            <strong>
+            <span>
               {displayedArticles.length} saved
-            </strong>
+            </span>
           </div>
-        ) : showHistory ? (
-          <div className="news-results-heading">
+        )}
+
+        {showHistory && (
+          <div className="google-news-view-heading">
             <div>
-              <span>Stored only in this browser</span>
-              <h2>Reading history</h2>
+              <HistoryIcon />
+              <h1>Reading history</h1>
             </div>
-            <strong>
+            <span>
               {displayedArticles.length} viewed
-            </strong>
+            </span>
           </div>
-        ) : loadedRange ? (
-          <div className="news-results-heading">
-            <div>
-              <span>
-                {NEWS_CATEGORY_LABELS[category]}
-              </span>
-              <h2>{loadedRange.label}</h2>
-            </div>
+        )}
+
+        {!showBookmarks &&
+          !showHistory &&
+          loadedRange &&
+          loadedCategory && (
+          <div className="google-news-result-meta">
+            <span>{loadedRange.label}</span>
             <strong>
               {articles.length} stories
             </strong>
           </div>
-        ) : (
-          <div className="news-empty-state">
-            <span>🗓️</span>
-            <h2>Select when you want news from</h2>
+        )}
+
+        {!showBookmarks &&
+          !showHistory &&
+          !loadedRange &&
+          !loading && (
+          <div className="google-news-empty">
+            <span>🗞️</span>
+            <h2>
+              Select one category and a time period
+            </h2>
             <p>
-              No stories load automatically. Choose a
-              day, week, month, year, or custom range,
-              then press Show news.
+              News is not loaded until both required
+              filters are selected and Search is pressed.
             </p>
           </div>
         )}
 
-        {notice && !showBookmarks && !showHistory && (
-          <p className="news-notice">
+        {loading && (
+          <div className="google-news-loading">
+            <span />
+            <p>Loading Google News…</p>
+          </div>
+        )}
+
+        {notice &&
+          !showBookmarks &&
+          !showHistory && (
+          <p className="google-news-notice">
             {notice}
           </p>
         )}
 
-        {provider && !showBookmarks && !showHistory && (
-          <p className="news-provider-label">
-            Feed provider: {provider}
+        {provider &&
+          !showBookmarks &&
+          !showHistory && (
+          <p className="google-news-provider">
+            Results from {provider}
           </p>
         )}
 
         {error && (
-          <div className="news-error" role="alert">
+          <div
+            className="google-news-error"
+            role="alert"
+          >
             {error}
           </div>
         )}
@@ -748,132 +1158,187 @@ export default function NewsPageClient() {
           !showHistory &&
           articles.length === 0 &&
           !error && (
-            <div className="news-empty-state compact">
-              <h2>No matching stories found</h2>
-              <p>
-                Try another date range, category, or
-                keyword.
-              </p>
-            </div>
-          )}
+          <div className="google-news-empty compact">
+            <h2>No matching stories found</h2>
+            <p>
+              Try another period, category, topic,
+              or search term.
+            </p>
+          </div>
+        )}
 
         {showBookmarks &&
           displayedArticles.length === 0 && (
-            <div className="news-empty-state compact">
-              <h2>No saved stories yet</h2>
-              <p>
-                Use the Save button on any news card.
-              </p>
-            </div>
-          )}
+          <div className="google-news-empty compact">
+            <h2>No saved stories</h2>
+            <p>
+              Save a story to find it here.
+            </p>
+          </div>
+        )}
 
         {showHistory &&
           displayedArticles.length === 0 && (
-            <div className="news-empty-state compact">
-              <h2>No reading history yet</h2>
-              <p>
-                Stories appear here after you open them.
-              </p>
-            </div>
-          )}
+          <div className="google-news-empty compact">
+            <h2>No reading history</h2>
+            <p>
+              Open a story and it will appear here.
+            </p>
+          </div>
+        )}
 
-        {displayedArticles.length > 0 && (
-          <div className="news-card-grid">
-            {displayedArticles.map((article) => {
-              const bookmarked = isNewsBookmarked(
-                article.id
-              );
+        {clusters.length > 0 && (
+          <div className="google-news-clusters">
+            {clusters.map((cluster) => {
+              const primaryBookmarked =
+                isNewsBookmarked(
+                  cluster.primary.id
+                );
 
               return (
                 <article
-                  className="news-card"
-                  key={`${article.id}-${bookmarkVersion}`}
+                  className="google-news-cluster"
+                  key={`${cluster.id}-${bookmarkVersion}`}
                 >
-                  <Link
-                    href={`/news/${encodeURIComponent(
-                      article.id
-                    )}`}
-                    className="news-card-media"
-                    onClick={() =>
-                      cacheNewsArticles([article])
-                    }
-                  >
-                    <NewsImage article={article} />
-                    <span className="news-card-category">
-                      {
-                        NEWS_CATEGORY_LABELS[
-                          article.category
-                        ]
+                  <div className="google-news-primary">
+                    <Link
+                      href={`/news/${encodeURIComponent(
+                        cluster.primary.id
+                      )}`}
+                      className="google-news-primary-media"
+                      onClick={() =>
+                        cacheNewsArticles([
+                          cluster.primary,
+                        ])
                       }
-                    </span>
-                  </Link>
+                    >
+                      <NewsImage
+                        article={cluster.primary}
+                      />
+                    </Link>
 
-                  <div className="news-card-content">
-                    <div className="news-card-meta">
-                      <span>{article.sourceName}</span>
-                      <time>
-                        {formatNewsDate(
-                          article.publishedAt
-                        )}
-                      </time>
+                    <div className="google-news-primary-copy">
+                      <SourceLabel
+                        article={cluster.primary}
+                      />
+
+                      <h2>
+                        <Link
+                          href={`/news/${encodeURIComponent(
+                            cluster.primary.id
+                          )}`}
+                          onClick={() =>
+                            cacheNewsArticles([
+                              cluster.primary,
+                            ])
+                          }
+                        >
+                          {cluster.primary.title}
+                        </Link>
+                      </h2>
+
+                      <p>
+                        {cluster.primary.summary}
+                      </p>
+
+                      <div className="google-news-story-time">
+                        <time>
+                          {formatNewsDate(
+                            cluster.primary
+                              .publishedAt
+                          )}
+                        </time>
+                      </div>
+
+                      <div className="google-news-story-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            listenToArticle(
+                              cluster.primary
+                            )
+                          }
+                        >
+                          <SpeakerIcon />
+                          Listen
+                        </button>
+
+                        <button
+                          type="button"
+                          className={
+                            primaryBookmarked
+                              ? "active"
+                              : ""
+                          }
+                          onClick={() =>
+                            bookmark(
+                              cluster.primary
+                            )
+                          }
+                        >
+                          <BookmarkIcon />
+                          {primaryBookmarked
+                            ? "Saved"
+                            : "Save"}
+                        </button>
+
+                        <Link
+                          href={`/news/${encodeURIComponent(
+                            cluster.primary.id
+                          )}`}
+                          onClick={() =>
+                            cacheNewsArticles([
+                              cluster.primary,
+                            ])
+                          }
+                        >
+                          Read story
+                        </Link>
+                      </div>
                     </div>
+                  </div>
 
-                    <h3>
-                      <Link
-                        href={`/news/${encodeURIComponent(
-                          article.id
-                        )}`}
-                        onClick={() =>
-                          cacheNewsArticles([article])
-                        }
-                      >
-                        {article.title}
-                      </Link>
-                    </h3>
+                  <div className="google-news-related">
+                    {cluster.related.map(
+                      (article) => (
+                        <article
+                          className="google-news-related-item"
+                          key={article.id}
+                        >
+                          <SourceLabel
+                            article={article}
+                          />
 
-                    <p>{article.summary}</p>
+                          <h3>
+                            <Link
+                              href={`/news/${encodeURIComponent(
+                                article.id
+                              )}`}
+                              onClick={() =>
+                                cacheNewsArticles([
+                                  article,
+                                ])
+                              }
+                            >
+                              {article.title}
+                            </Link>
+                          </h3>
 
-                    <div className="news-card-reading-time">
-                      {estimateReadingMinutes(article)} min
-                      read
-                      {article.videoUrl
-                        ? " · Video available"
-                        : ""}
-                    </div>
+                          <time>
+                            {formatNewsDate(
+                              article.publishedAt
+                            )}
+                          </time>
+                        </article>
+                      )
+                    )}
 
-                    <div className="news-card-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          listenToArticle(article)
-                        }
-                      >
-                        🔊 Listen
-                      </button>
-
-                      <Link
-                        href={`/news/${encodeURIComponent(
-                          article.id
-                        )}`}
-                        onClick={() =>
-                          cacheNewsArticles([article])
-                        }
-                      >
-                        Read story
-                      </Link>
-
-                      <button
-                        type="button"
-                        className={
-                          bookmarked ? "active" : ""
-                        }
-                        onClick={() => bookmark(article)}
-                      >
-                        {bookmarked
-                          ? "Saved"
-                          : "Save"}
-                      </button>
-                    </div>
+                    {cluster.related.length >
+                      0 && (
+                      <div className="google-news-more-perspectives">
+                        More headlines and perspectives
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -886,7 +1351,7 @@ export default function NewsPageClient() {
           nextPage !== null && (
           <button
             type="button"
-            className="news-more-button"
+            className="google-news-load-more"
             disabled={loadingMore}
             onClick={() =>
               void fetchNews({
@@ -900,11 +1365,13 @@ export default function NewsPageClient() {
               : "Load more stories"}
           </button>
         )}
-      </div>
+      </main>
 
       <NewsAudioPlayer
         request={speechRequest}
-        onClose={() => setSpeechRequest(null)}
+        onClose={() =>
+          setSpeechRequest(null)
+        }
       />
     </section>
   );
