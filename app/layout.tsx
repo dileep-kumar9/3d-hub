@@ -13,6 +13,34 @@ import Analytics from "@/components/Analytics";
 
 const siteUrl = "https://3d-hub-lac.vercel.app/";
 
+const themeInitializationScript = `
+  (function () {
+    try {
+      var savedTheme =
+        localStorage.getItem("3d-hub-theme");
+      var theme =
+        savedTheme === "light" ||
+        savedTheme === "dark"
+          ? savedTheme
+          : window.matchMedia(
+              "(prefers-color-scheme: light)"
+            ).matches
+            ? "light"
+            : "dark";
+
+      document.documentElement.dataset.theme =
+        theme;
+      document.documentElement.style.colorScheme =
+        theme;
+    } catch (error) {
+      document.documentElement.dataset.theme =
+        "dark";
+      document.documentElement.style.colorScheme =
+        "dark";
+    }
+  })();
+`;
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
 
@@ -22,7 +50,7 @@ export const metadata: Metadata = {
   },
 
   description:
-    "Discover Telugu movies, Tollywood trailers, music, news, kids videos, Shorts, 3D content and immersive audio on 3D Hub.",
+    "Discover Telugu movies, Tollywood trailers, music, kids videos, Shorts, 3D content and immersive audio on 3D Hub.",
 
   applicationName: "3D Hub",
   manifest: "/manifest.webmanifest",
@@ -37,9 +65,6 @@ export const metadata: Metadata = {
     "3D videos",
     "kids videos",
     "immersive audio",
-    "India news",
-    "Telugu news",
-    "news reader",
   ],
 
   icons: {
@@ -72,7 +97,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "3D Hub",
     description:
-      "Telugu movies, music, news, Shorts, kids videos, 3D content and immersive audio.",
+      "Telugu movies, music, Shorts, kids videos, 3D content and immersive audio.",
     url: siteUrl,
     siteName: "3D Hub",
     type: "website",
@@ -130,7 +155,25 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      data-theme="dark"
+      suppressHydrationWarning
+    >
+      <head>
+        <meta
+          name="theme-color"
+          content="#000000"
+        />
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              themeInitializationScript,
+          }}
+        />
+      </head>
+
       <body>
         <script
           type="application/ld+json"
