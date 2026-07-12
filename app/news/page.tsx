@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import NewsOpenChoice from "@/components/NewsOpenChoice";
 
 export const metadata: Metadata = {
   title: "News",
@@ -7,7 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function NewsPage() {
-  redirect(
-    "https://news.google.com/home?hl=en-IN&gl=IN&ceid=IN:en"
-  );
+  return <NewsOpenChoice />;
 }
