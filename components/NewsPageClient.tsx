@@ -460,7 +460,7 @@ export default function NewsPageClient() {
   }
 
   return (
-    <section className="news-shell">
+    <section className="news-shell news-home-shell">
       <header className="news-hero">
         <div className="news-hero-kicker">
           Independent news reader
