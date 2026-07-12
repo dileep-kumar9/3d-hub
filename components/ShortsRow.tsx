@@ -505,11 +505,6 @@ function ReelPlayer({
 
       <div className="reel-gradient" />
 
-      <div
-        className="reel-native-top-cover"
-        aria-hidden="true"
-      />
-
       <button
         type="button"
         className="reel-tap-toggle"
@@ -547,10 +542,7 @@ function ReelPlayer({
         </button>
       </div>
 
-      <div className="reel-info">
-        <strong>{video.title}</strong>
-        <span>{video.channel}</span>
-
+      <div className="reel-info reel-controls-only">
         <div className="reel-seek-row">
           <time>{formatTime(currentTime)}</time>
 
@@ -569,8 +561,6 @@ function ReelPlayer({
         </div>
 
         <div className="reel-bottom-actions">
-          <span>Drag the timeline to jump to any time</span>
-
           <div className="reel-bottom-buttons">
             <button
               type="button"
