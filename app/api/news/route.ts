@@ -70,6 +70,105 @@ function cleanText(value: unknown) {
     .trim();
 }
 
+function decodeXml(value: string) {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#(\d+);/g, (_, number: string) =>
+      String.fromCodePoint(Number(number))
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, number: string) =>
+      String.fromCodePoint(
+        Number.parseInt(number, 16)
+      )
+    )
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractXmlTag(
+  value: string,
+  tag: string
+) {
+  const escaped = tag.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+  const match = value.match(
+    new RegExp(
+      `<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}>`,
+      "i"
+    )
+  );
+
+  return cleanText(
+    decodeXml(match?.[1] || "")
+  );
+}
+
+function extractXmlAttribute(
+  value: string,
+  tag: string,
+  attribute: string
+) {
+  const escapedTag = tag.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+  const escapedAttribute = attribute.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&"
+  );
+  const match = value.match(
+    new RegExp(
+      `<${escapedTag}[^>]*\\s${escapedAttribute}=["']([^"']+)["'][^>]*>`,
+      "i"
+    )
+  );
+
+  return cleanText(
+    decodeXml(match?.[1] || "")
+  );
+}
+
+function addDays(
+  value: string,
+  numberOfDays: number
+) {
+  const date = new Date(
+    `${value}T12:00:00Z`
+  );
+  date.setUTCDate(
+    date.getUTCDate() + numberOfDays
+  );
+
+  return date.toISOString().slice(0, 10);
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 9000
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMs
+  );
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function stableId(value: string) {
   let hash = 2166136261;
 
@@ -356,6 +455,201 @@ async function fetchNewsData({
   };
 }
 
+async function fetchGoogleNewsRss({
+  category,
+  start,
+  end,
+  query,
+  page,
+}: {
+  category: NewsCategory;
+  start: string;
+  end: string;
+  query: string;
+  page: string | null;
+}) {
+  /*
+   * Google News RSS is used only as a resilient no-key fallback.
+   * Results are still filtered locally to the requested date range.
+   */
+  const startForSearch = addDays(start, -1);
+  const endForSearch = addDays(end, 1);
+  const categoryQuery =
+    CATEGORY_QUERIES[category];
+  const combinedQuery = [
+    `(${categoryQuery})`,
+    query ? `(${query})` : "",
+    `after:${startForSearch}`,
+    `before:${endForSearch}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const params = new URLSearchParams({
+    q: combinedQuery,
+    hl: "en-IN",
+    gl: "IN",
+    ceid: "IN:en",
+  });
+
+  const response = await fetchWithTimeout(
+    `https://news.google.com/rss/search?${params.toString()}`,
+    {
+      headers: {
+        Accept:
+          "application/rss+xml, application/xml, text/xml",
+        "User-Agent":
+          "Mozilla/5.0 (compatible; 3DHubNews/1.0; +https://3d-hub-lac.vercel.app/news)",
+      },
+      cache: "no-store",
+    },
+    9000
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `RSS provider returned ${response.status}.`
+    );
+  }
+
+  const xml = await response.text();
+  const itemBlocks =
+    xml.match(/<item\b[\s\S]*?<\/item>/gi) ||
+    [];
+
+  const rangeStart = new Date(
+    `${start}T00:00:00Z`
+  ).getTime();
+  const rangeEnd = new Date(
+    `${end}T23:59:59Z`
+  ).getTime();
+
+  const allArticles: NewsArticle[] =
+    itemBlocks
+      .map((item) => {
+        const rawTitle =
+          extractXmlTag(item, "title");
+        const sourceName =
+          extractXmlTag(item, "source") ||
+          "News publisher";
+        const sourceUrl =
+          extractXmlAttribute(
+            item,
+            "source",
+            "url"
+          ) || undefined;
+        const url =
+          extractXmlTag(item, "link");
+        const publishedAtRaw =
+          extractXmlTag(item, "pubDate");
+        const publishedDate = new Date(
+          publishedAtRaw
+        );
+        const publishedAt =
+          Number.isNaN(
+            publishedDate.getTime()
+          )
+            ? new Date().toISOString()
+            : publishedDate.toISOString();
+        const description = cleanText(
+          decodeXml(
+            extractXmlTag(
+              item,
+              "description"
+            )
+          )
+        );
+        const sourceSuffix =
+          sourceName &&
+          rawTitle.endsWith(
+            ` - ${sourceName}`
+          )
+            ? ` - ${sourceName}`
+            : "";
+        const title = sourceSuffix
+          ? rawTitle.slice(
+              0,
+              -sourceSuffix.length
+            )
+          : rawTitle;
+
+        return {
+          id: stableId(
+            extractXmlTag(item, "guid") ||
+              url ||
+              `${title}-${publishedAt}`
+          ),
+          title,
+          summary:
+            description &&
+            description !== rawTitle &&
+            description.length > title.length
+              ? description.slice(0, 700)
+              : `Latest report from ${sourceName}. Open the original story for complete details and ongoing updates.`,
+          sourceName,
+          sourceUrl,
+          url,
+          publishedAt,
+          category,
+          language: "English",
+          country:
+            category === "world"
+              ? undefined
+              : "India",
+        } satisfies NewsArticle;
+      })
+      .filter((article) => {
+        if (
+          !article.title ||
+          !article.url ||
+          !article.url.startsWith("http")
+        ) {
+          return false;
+        }
+
+        const timestamp = new Date(
+          article.publishedAt
+        ).getTime();
+
+        return (
+          Number.isFinite(timestamp) &&
+          timestamp >= rangeStart &&
+          timestamp <= rangeEnd
+        );
+      });
+
+  const unique = Array.from(
+    new Map(
+      allArticles.map((article) => [
+        article.url,
+        article,
+      ])
+    ).values()
+  );
+  const pageNumber = Math.max(
+    1,
+    Number(page || "1") || 1
+  );
+  const pageSize = 18;
+  const startIndex =
+    (pageNumber - 1) * pageSize;
+  const articles = unique.slice(
+    startIndex,
+    startIndex + pageSize
+  );
+  const hasMore =
+    startIndex + pageSize < unique.length;
+
+  return {
+    articles,
+    nextPage:
+      hasMore ? pageNumber + 1 : null,
+    provider: "Google News RSS",
+    notice:
+      "Live RSS results are shown with publisher attribution. Open the source for the complete report.",
+  };
+}
+
 async function fetchGdelt({
   category,
   start,
@@ -413,14 +707,17 @@ async function fetchGdelt({
     enddatetime: toGdeltDate(end, true),
   });
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://api.gdeltproject.org/api/v2/doc/doc?${params.toString()}`,
     {
       headers: {
         Accept: "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (compatible; 3DHubNews/1.0; +https://3d-hub-lac.vercel.app/news)",
       },
-      next: { revalidate: 900 },
-    }
+      cache: "no-store",
+    },
+    7500
   );
 
   if (!response.ok) {
@@ -571,35 +868,105 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const providerErrors: string[] = [];
+
   try {
-    const fallback = await fetchGdelt({
-      category,
-      start,
-      end,
-      query,
-      page,
-    });
+    const rssResult =
+      await fetchGoogleNewsRss({
+        category,
+        start,
+        end,
+        query,
+        page,
+      });
+
+    if (rssResult.articles.length > 0) {
+      return NextResponse.json({
+        ...rssResult,
+        notice: [
+          primaryError
+            ? `Primary provider unavailable: ${primaryError}`
+            : "",
+          rssResult.notice,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
+
+    providerErrors.push(
+      "The RSS provider returned no matching stories."
+    );
+  } catch (rssError) {
+    providerErrors.push(
+      rssError instanceof Error
+        ? `RSS provider: ${rssError.message}`
+        : "RSS provider unavailable."
+    );
+  }
+
+  try {
+    const gdeltResult =
+      await fetchGdelt({
+        category,
+        start,
+        end,
+        query,
+        page,
+      });
+
+    if (gdeltResult.articles.length > 0) {
+      return NextResponse.json({
+        ...gdeltResult,
+        notice: [
+          primaryError
+            ? `Primary provider unavailable: ${primaryError}`
+            : "",
+          ...providerErrors,
+          gdeltResult.notice,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
 
     return NextResponse.json({
-      ...fallback,
+      ...gdeltResult,
       notice: [
         primaryError
           ? `Primary provider unavailable: ${primaryError}`
           : "",
-        fallback.notice,
+        ...providerErrors,
+        gdeltResult.notice,
+        "No stories matched the selected date and category. Try a wider period or another category.",
       ]
         .filter(Boolean)
         .join(" "),
     });
-  } catch (fallbackError) {
-    return NextResponse.json(
-      {
-        error:
-          fallbackError instanceof Error
-            ? fallbackError.message
-            : "Unable to load news.",
-      },
-      { status: 502 }
+  } catch (gdeltError) {
+    providerErrors.push(
+      gdeltError instanceof Error
+        ? `GDELT: ${gdeltError.message}`
+        : "GDELT unavailable."
     );
+
+    /*
+     * Return a successful empty response instead of exposing a raw
+     * server-side "fetch failed" error to the browser.
+     */
+    return NextResponse.json({
+      articles: [],
+      nextPage: null,
+      provider: "",
+      notice: [
+        primaryError
+          ? `Primary provider unavailable: ${primaryError}`
+          : "",
+        ...providerErrors,
+        "Live news providers are temporarily unavailable. Please try again shortly.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
   }
 }
