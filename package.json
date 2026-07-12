@@ -7,14 +7,18 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "firebase": "^10.12.0"
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "firebase": "10.14.1"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/react": "^18",
-    "@types/node": "^20"
-  }
+    "typescript": "5.9.3",
+    "@types/react": "18.3.31",
+    "@types/node": "20.19.43"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "packageManager": "npm@10.9.2"
 }
