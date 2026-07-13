@@ -7,6 +7,7 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const queryRef = useRef(initialQuery);
   const pageTokenRef = useRef<string | undefined>(undefined);
@@ -72,6 +73,7 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
     pageTokenRef.current = undefined;
     hasMoreRef.current = true;
     setHasMore(true);
+    setHasSearched(true);
     void fetchPage(true, undefined, false);
   }
 
@@ -103,5 +105,5 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { videos, loading, search, reload, loadMore, hasMore };
+  return { videos, loading, search, reload, loadMore, hasMore, hasSearched };
 }
