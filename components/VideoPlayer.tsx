@@ -190,18 +190,6 @@ export default function VideoPlayer({
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
           />
-
-          {isFullscreen && (
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              className="fullscreen-exit-overlay"
-              aria-label="Exit fullscreen"
-              title="Exit fullscreen"
-            >
-              🗗 Exit
-            </button>
-          )}
         </div>
 
         <section className="watch-details">
@@ -224,7 +212,7 @@ export default function VideoPlayer({
                 : "⛶ Watch fullscreen"}
             </button>
 
-            <a
+            
               href={`https://www.youtube.com/watch?v=${video.id}`}
               target="_blank"
               rel="noopener noreferrer"
