@@ -398,7 +398,7 @@ function ReelPlayer({
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-    }, [reportEngagement, video.id]);
+  }, [reportEngagement, video.id]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -608,9 +608,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   const consecutiveEmptyFetchesRef = useRef(0);
   const feedExhaustedRef = useRef(false);
   const categoryFetchCountRef = useRef(0);
-  const categorySignalsRef = useRef
-    Partial<Record<ShortsCategory, CategorySignals>>
-  >({});
+  const categorySignalsRef = useRef<Partial<Record<ShortsCategory, CategorySignals>>>({});
   const observedEngagementIdsRef =
     useRef<Set<string>>(new Set());
   const preferredCategoryRef =
@@ -1160,7 +1158,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       observedEngagementIdsRef.current.size;
 
     if (
-      totalObserved 
+      totalObserved <
       MIN_SHORTS_BEFORE_PERSONALIZING
     ) {
       return;
@@ -1169,7 +1167,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
     const scoredCategories = (
       Object.entries(
         categorySignalsRef.current
-      ) as Array
+      ) as Array<
         [ShortsCategory, CategorySignals]
       >
     ).map(
@@ -1197,6 +1195,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
         };
       }
     );
+
     const preferred =
       scoredCategories
         .filter(
@@ -1621,4 +1620,4 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
 
     </section>
   );
-      }
+}
