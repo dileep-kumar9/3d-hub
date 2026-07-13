@@ -36,7 +36,7 @@ export default function Home() {
     useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
 
-  const { videos, loading, search, reload, loadMore, hasMore } = useInfiniteVideos(
+  const { videos, loading, search, reload, loadMore, hasMore, hasSearched } = useInfiniteVideos(
     pickDailyQuery(defaultQueries)
   );
 
@@ -119,11 +119,13 @@ export default function Home() {
         </Hero>
       )}
 
-      <TrendingRow
-        title="🔥 Recommended for you"
-        section="home"
-        onPlay={handlePlay}
-      />
+      {!hasSearched && (
+        <TrendingRow
+          title="🔥 Recommended for you"
+          section="home"
+          onPlay={handlePlay}
+        />
+      )}
 
       {continueExploring.length > 0 && (
         <ContentRow
