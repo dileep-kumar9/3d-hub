@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Video } from "./VideoCard";
+import { useNowPlaying } from "./NowPlayingProvider";
 
 type Props = {
   video: Video | null;
@@ -18,8 +19,65 @@ export default function VideoPlayer({
   onClose,
 }: Props) {
   const playerRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const pushedHistoryRef = useRef(false);
+  const { stop: stopMusic } = useNowPlaying();
+
+  onCloseRef.current = onClose;
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Any video opening in this player takes over playback, so pause whatever
+  // was playing in the persistent background music mini-player.
+  useEffect(() => {
+    if (video) {
+      stopMusic();
+    }
+    // Only re-run when a *different* video opens, not on every stopMusic
+    // identity change (it's stable from context, but this keeps intent clear).
+  }, [video, stopMusic]);
+
+  // On mobile, the hardware/gesture back button fires a normal browser
+  // "back" navigation. Without this, that would leave the current page
+  // entirely (losing whatever search results or scroll position were
+  // behind the video) instead of just closing the video overlay. Pushing a
+  // history entry when the video opens lets us intercept that back press
+  // with popstate and simply close the overlay, so the page underneath
+  // (and where the user was) is exactly as they left it.
+  useEffect(() => {
+    if (!video) return;
+
+    window.history.pushState(
+      { videoOverlay: true },
+      ""
+    );
+    pushedHistoryRef.current = true;
+
+    function handlePopState() {
+      pushedHistoryRef.current = false;
+      onCloseRef.current();
+    }
+
+    window.addEventListener(
+      "popstate",
+      handlePopState
+    );
+
+    return () => {
+      window.removeEventListener(
+        "popstate",
+        handlePopState
+      );
+
+      // Closed via our own UI (not the back button) — remove the extra
+      // history entry we added so the next back press behaves normally
+      // instead of just re-closing an already-closed player.
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        window.history.back();
+      }
+    };
+  }, [video]);
 
   useEffect(() => {
     function handleFullscreenChange() {
