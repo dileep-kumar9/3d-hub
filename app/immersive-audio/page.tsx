@@ -14,7 +14,7 @@ export default function ImmersiveAudio(){
   const {user}=useAuth();
   const {play}=useNowPlaying();
   const [refreshing,setRefreshing]=useState(false);
-  const {videos,loading,search,reload,loadMore,hasMore}=useInfiniteVideos(pickDailyQuery(defaultQueries));
+  const {videos,loading,search,reload,loadMore,hasMore,hasSearched}=useInfiniteVideos(pickDailyQuery(defaultQueries));
   const handlePlay=(video:Video)=>{play(video);logHistory(user,video,"immersive audio")};
   async function handleRefresh(){setRefreshing(true);try{await reload();}finally{setRefreshing(false);}}
   return <div className="page-wrap">
@@ -23,7 +23,7 @@ export default function ImmersiveAudio(){
       <div className="content-search-box"><SearchBar section="immersive-audio" onSearch={search} placeholder="Search immersive audio or ask AI..."/></div>
       <button className={`refresh-btn${refreshing?" spinning":""}`} onClick={handleRefresh} disabled={refreshing} title="Refresh content" aria-label="Refresh content"><RefreshIcon size={20}/><span className="refresh-label">Refresh</span></button>
     </div>
-    <TrendingRow title="🔥 Trending Immersive Audio" section="immersive-audio" onPlay={handlePlay}/>
+    {!hasSearched && <TrendingRow title="🔥 Trending Immersive Audio" section="immersive-audio" onPlay={handlePlay}/>}
     <div className="video-grid">{videos.map(v=><VideoCard key={v.id} video={v} section="immersive audio" onPlay={handlePlay}/>)}</div>
     {loading&&<p style={{textAlign:"center",color:"#94a3b8"}}>Loading...</p>}
     {!loading&&hasMore&&<button className="load-more-btn" onClick={loadMore}>Load More</button>}
