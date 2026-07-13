@@ -14,7 +14,7 @@ export default function ThreeDVideos(){
   const {user}=useAuth();
   const [playing,setPlaying]=useState<Video|null>(null);
   const [refreshing,setRefreshing]=useState(false);
-  const {videos,loading,search,reload,loadMore,hasMore}=useInfiniteVideos(pickDailyQuery(defaultQueries),"dimension=3d");
+  const {videos,loading,search,reload,loadMore,hasMore,hasSearched}=useInfiniteVideos(pickDailyQuery(defaultQueries),"dimension=3d");
   const handlePlay=(video:Video)=>{setPlaying(video);logHistory(user,video,"3d videos")};
   async function handleRefresh(){setRefreshing(true);try{await reload();}finally{setRefreshing(false);}}
   return <div className="page-wrap">
@@ -23,7 +23,7 @@ export default function ThreeDVideos(){
       <div className="content-search-box"><SearchBar section="3d" onSearch={search} placeholder="Search 3D videos or ask AI..."/></div>
       <button className={`refresh-btn${refreshing?" spinning":""}`} onClick={handleRefresh} disabled={refreshing} title="Refresh content" aria-label="Refresh content"><RefreshIcon size={20}/><span className="refresh-label">Refresh</span></button>
     </div>
-    <TrendingRow title="🔥 Trending 3D Videos" section="3d" onPlay={handlePlay}/>
+    {!hasSearched && <TrendingRow title="🔥 Trending 3D Videos" section="3d" onPlay={handlePlay}/>}
     {loading&&<p style={{padding:"0 24px",color:"#94a3b8"}}>Loading...</p>}
     {!loading&&videos.length===0&&<p style={{padding:"0 24px",color:"#94a3b8"}}>No 3D videos found for that search — try another term.</p>}
     <div className="video-grid">{videos.map(v=><VideoCard key={v.id} video={v} section="3d videos" onPlay={handlePlay}/>)}</div>
