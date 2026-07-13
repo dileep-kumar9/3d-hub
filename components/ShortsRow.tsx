@@ -9,6 +9,7 @@ import {
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Video } from "./VideoCard";
 import { useLibrary } from "./LibraryProvider";
+import { useNowPlaying } from "./NowPlayingProvider";
 
 type ShortsCategory =
   | "comedy"
@@ -596,6 +597,7 @@ function ReelPlayer({
 
 export default function ShortsRow({ onPlay, onWatch }: Props) {
   const { addRecent } = useLibrary();
+  const { stop: stopMusic } = useNowPlaying();
   const feedRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLElement | null>>([]);
   const watchedIdsRef = useRef<Set<string>>(new Set());
@@ -621,7 +623,40 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   const [videos, setVideos] =
     useState<ShortVideo[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [shortsMuted, setShortsMuted] = useState(true);
+  const [shortsMuted, setShortsMuted] = useState(() => {
+    if (typeof window === "undefined") return true;
+
+    try {
+      // Once someone unmutes Shorts, remember that choice so they don't
+      // have to tap the speaker icon again every time they come back —
+      // this is the best we can do from the web page itself, since
+      // browsers don't expose the device's physical volume buttons to
+      // web pages (see note in setShortsMutedPersisted below).
+      const stored = window.localStorage.getItem(
+        "shortsMuted"
+      );
+      return stored === null
+        ? true
+        : stored === "true";
+    } catch {
+      return true;
+    }
+  });
+
+  function setShortsMutedPersisted(
+    nextMuted: boolean
+  ) {
+    setShortsMuted(nextMuted);
+
+    try {
+      window.localStorage.setItem(
+        "shortsMuted",
+        String(nextMuted)
+      );
+    } catch {
+      // Ignore storage failures (e.g. private browsing).
+    }
+  }
   const categoryPageTokenRef = useRef<string | null>(null);
   const mixedPageTokenRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1076,6 +1111,8 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   }
 
   function markWatched(video: ShortVideo) {
+    stopMusic();
+
     if (
       watchedIdsRef.current.has(video.id)
     ) {
@@ -1498,7 +1535,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
                         recordEngagement
                       }
                       onMutedChange={
-                        setShortsMuted
+                        setShortsMutedPersisted
                       }
                       onOpen={() =>
                         openFullPlayer(video)
