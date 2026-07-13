@@ -212,12 +212,11 @@ export default function VideoPlayer({
                 : "⛶ Watch fullscreen"}
             </button>
 
-            
+            <a
               href={`https://www.youtube.com/watch?v=${video.id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="watch-action-secondary"
-            >
+              className="watch-action-secondary">
               Open on YouTube
             </a>
           </div>
