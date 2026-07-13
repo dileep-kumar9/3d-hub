@@ -427,6 +427,8 @@ export default function SearchBar({
       <form
         onSubmit={handleSubmit}
         className="search-form"
+        autoComplete="off"
+        data-form-type="other"
       >
         <div className="search-field">
           <span className="search-symbol">
@@ -450,7 +452,17 @@ export default function SearchBar({
             }
             className="search-input"
             aria-label="Search"
+            name="site-search"
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
             autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
           />
         </div>
 
