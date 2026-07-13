@@ -54,7 +54,16 @@ type CategorySignals = {
   totalWatchRatio: number;
 };
 
-const MIN_SHORTS_BEFORE_PERSONALIZING = 6;
+// Real Shorts/Reels feeds take a while to lock onto a taste profile and
+// even then keep blending in a healthy amount of other content. Requiring
+// more observed engagements (and keeping a larger "explore" slice below)
+// stops the feed from feeling like it's just replaying the first Short's
+// category over and over.
+const MIN_SHORTS_BEFORE_PERSONALIZING = 12;
+// How many fetches in a row can come back with zero *new* videos before we
+// treat the current feed/category as exhausted and fall back to a broader
+// mix, instead of silently stalling after "a certain number of shorts".
+const MAX_CONSECUTIVE_EMPTY_FETCHES = 2;
 
 type Props = {
   onPlay: (video: Video) => void;
@@ -389,7 +398,7 @@ function ReelPlayer({
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [reportEngagement, video.id]);
+    }, [reportEngagement, video.id]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -596,7 +605,10 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   const shortsMixRef = useRef(
     Math.floor(Math.random() * 12)
   );
-  const categorySignalsRef = useRef<
+  const consecutiveEmptyFetchesRef = useRef(0);
+  const feedExhaustedRef = useRef(false);
+  const categoryFetchCountRef = useRef(0);
+  const categorySignalsRef = useRef
     Partial<Record<ShortsCategory, CategorySignals>>
   >({});
   const observedEngagementIdsRef =
@@ -612,17 +624,20 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
     useState<ShortVideo[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [shortsMuted, setShortsMuted] = useState(true);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  const categoryPageTokenRef = useRef<string | null>(null);
+  const mixedPageTokenRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [feedExhausted, setFeedExhausted] = useState(false);
 
   const fetchShortsPage = useCallback(
     async (
       pageToken?: string | null,
       reset = false,
-      category?: ShortsCategory | null
+      category?: ShortsCategory | null,
+      forceMixed = false
     ): Promise<number> => {
       if (!reset && loadingMoreRef.current) {
         return 0;
@@ -643,6 +658,11 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
         excludedCategoriesRef.current.clear();
         profileSignatureRef.current = "";
         profileLoadVersionRef.current += 1;
+        consecutiveEmptyFetchesRef.current = 0;
+        feedExhaustedRef.current = false;
+        categoryPageTokenRef.current = null;
+        mixedPageTokenRef.current = null;
+        setFeedExhausted(false);
         setLoading(true);
         setLoadingMore(false);
         setLoadError("");
@@ -652,11 +672,16 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       }
 
       try {
-        const activeCategory =
-          reset
-            ? null
-            : category ??
-              preferredCategoryRef.current;
+        // `forceMixed` explicitly asks for the broad, non-personalized feed
+        // (used as a fallback when a personalized category runs dry) even
+        // if a preferred category is currently set. Without this, passing
+        // `null` here would fall straight back through to the preferred
+        // category via `??`, defeating the fallback.
+        const activeCategory = reset
+          ? null
+          : forceMixed
+          ? null
+          : category ?? preferredCategoryRef.current;
 
         const params = new URLSearchParams({
           mode: "shorts",
@@ -748,16 +773,32 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
             : [...current, ...incoming];
         });
 
-        setNextPageToken(
+        const returnedToken =
           typeof data.nextPageToken === "string"
             ? data.nextPageToken
-            : null
-        );
+            : null;
+
+        // Route the continuation token to the track it belongs to.
+        // Category and mixed-feed queries are different YouTube searches,
+        // so their pageTokens are not interchangeable.
+        if (activeCategory) {
+          categoryPageTokenRef.current = returnedToken;
+        } else {
+          mixedPageTokenRef.current = returnedToken;
+        }
 
         if (reset) {
           setActiveIndex(0);
           watchedIdsRef.current.clear();
           cardRefs.current = [];
+        }
+
+        if (addedCount > 0) {
+          consecutiveEmptyFetchesRef.current = 0;
+          feedExhaustedRef.current = false;
+          setFeedExhausted(false);
+        } else if (!reset) {
+          consecutiveEmptyFetchesRef.current += 1;
         }
 
         return addedCount;
@@ -795,19 +836,76 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   }, [fetchShortsPage]);
 
   const loadMoreShorts = useCallback(async () => {
-    if (
-      !nextPageToken ||
-      loadingMoreRef.current
-    ) {
+    if (loadingMoreRef.current) {
       return 0;
     }
 
+    const preferred = preferredCategoryRef.current;
+    const categoryToken = categoryPageTokenRef.current;
+
+    // Even while the personalized category feed still has pages left,
+    // periodically pull in a broad mixed page (~1 in 3) so the feed keeps
+    // blending other content the way YouTube/Instagram do, instead of
+    // drifting toward 100% one category the longer someone scrolls.
+    const shouldBlendMixedPage =
+      Boolean(preferred) &&
+      Boolean(categoryToken) &&
+      categoryFetchCountRef.current % 3 === 2;
+
+    if (categoryToken && !shouldBlendMixedPage) {
+      categoryFetchCountRef.current += 1;
+
+      const added = await fetchShortsPage(
+        categoryToken,
+        false,
+        preferred
+      );
+
+      if (added > 0) {
+        return added;
+      }
+    } else if (shouldBlendMixedPage) {
+      categoryFetchCountRef.current += 1;
+
+      shortsMixRef.current =
+        (shortsMixRef.current + 1) % 12;
+
+      const added = await fetchShortsPage(
+        mixedPageTokenRef.current,
+        false,
+        null,
+        true
+      );
+
+      if (added > 0) {
+        return added;
+      }
+    }
+
+    // The personalized/category feed is out of fresh, unique Shorts (or
+    // never had a token to begin with). Rather than stopping the feed
+    // after only a handful of Shorts, fall back to a broad mixed feed —
+    // this is what keeps YouTube/Instagram-style feeds scrolling
+    // indefinitely instead of dead-ending on one narrow category.
+    if (
+      consecutiveEmptyFetchesRef.current >=
+      MAX_CONSECUTIVE_EMPTY_FETCHES
+    ) {
+      feedExhaustedRef.current = true;
+      setFeedExhausted(true);
+      return 0;
+    }
+
+    shortsMixRef.current =
+      (shortsMixRef.current + 1) % 12;
+
     return fetchShortsPage(
-      nextPageToken,
+      mixedPageTokenRef.current,
       false,
-      preferredCategoryRef.current
+      null,
+      true
     );
-  }, [fetchShortsPage, nextPageToken]);
+  }, [fetchShortsPage]);
 
   useEffect(() => {
     const feed = feedRef.current;
@@ -883,7 +981,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       return;
     }
 
-    if (nextPageToken) {
+    if (!feedExhaustedRef.current) {
       pendingNextIndexRef.current =
         videos.length;
 
@@ -894,25 +992,26 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   }, [
     activeIndex,
     loadMoreShorts,
-    nextPageToken,
     scrollToShort,
     videos.length,
   ]);
 
-  // Start loading the next YouTube results before the user reaches the end.
+  // Start loading the next Shorts before the user reaches the end. This no
+  // longer requires a live nextPageToken: loadMoreShorts falls back to a
+  // broad mixed feed on its own once the personalized category runs dry,
+  // so the feed keeps scrolling instead of stopping after a fixed batch.
   useEffect(() => {
     if (
       videos.length > 0 &&
       activeIndex >= videos.length - 3 &&
-      nextPageToken &&
-      !loadingMoreRef.current
+      !loadingMoreRef.current &&
+      !feedExhaustedRef.current
     ) {
       void loadMoreShorts();
     }
   }, [
     activeIndex,
     loadMoreShorts,
-    nextPageToken,
     videos.length,
   ]);
 
@@ -952,7 +1051,11 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
     profileSignatureRef.current = "";
     profileLoadVersionRef.current += 1;
     setActiveIndex(0);
-    setNextPageToken(null);
+    categoryPageTokenRef.current = null;
+    mixedPageTokenRef.current = null;
+    consecutiveEmptyFetchesRef.current = 0;
+    feedExhaustedRef.current = false;
+    setFeedExhausted(false);
     cardRefs.current = [];
     watchedIdsRef.current.clear();
 
@@ -1057,7 +1160,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       observedEngagementIdsRef.current.size;
 
     if (
-      totalObserved <
+      totalObserved 
       MIN_SHORTS_BEFORE_PERSONALIZING
     ) {
       return;
@@ -1066,7 +1169,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
     const scoredCategories = (
       Object.entries(
         categorySignalsRef.current
-      ) as Array<
+      ) as Array
         [ShortsCategory, CategorySignals]
       >
     ).map(
@@ -1094,7 +1197,6 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
         };
       }
     );
-
     const preferred =
       scoredCategories
         .filter(
@@ -1150,7 +1252,13 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       preferred;
     excludedCategoriesRef.current =
       excluded;
-    setNextPageToken(null);
+    // The old category-continuation token belongs to a different query
+    // than the new preferred category, so it can't be reused. The mixed
+    // feed's token is unaffected and stays valid.
+    categoryPageTokenRef.current = null;
+    consecutiveEmptyFetchesRef.current = 0;
+    feedExhaustedRef.current = false;
+    setFeedExhausted(false);
 
     // Keep watched Shorts. For upcoming items, remove repeated skip
     // categories and retain some mixed exploration so the profile can
@@ -1188,7 +1296,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
               !preferred ||
               item.shortsCategory ===
                 preferred ||
-              index % 4 === 0
+              index % 3 === 0
           );
 
       cardRefs.current = [];
@@ -1435,6 +1543,27 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
                   )}
                 </article>
               ))}
+
+          {!loading && feedExhausted && (
+            <article className="reel-slide reel-slide-end">
+              <div className="reel-end-card">
+                <p>You&rsquo;re all caught up for now.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    feedExhaustedRef.current = false;
+                    setFeedExhausted(false);
+                    consecutiveEmptyFetchesRef.current = 0;
+                    shortsMixRef.current =
+                      (shortsMixRef.current + 1) % 12;
+                    void loadMoreShorts();
+                  }}
+                >
+                  Keep watching
+                </button>
+              </div>
+            </article>
+          )}
         </div>
 
         {!loading &&
@@ -1473,7 +1602,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
                 disabled={
                   activeIndex ===
                     videos.length - 1 &&
-                  !nextPageToken &&
+                  feedExhausted &&
                   !loadingMore
                 }
                 aria-label="Next Short"
@@ -1492,4 +1621,4 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
 
     </section>
   );
-}
+      }
