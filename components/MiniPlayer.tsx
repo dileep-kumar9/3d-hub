@@ -1,564 +1,84 @@
 "use client";
 
 import {
-  useEffect,
+  createContext,
+  useCallback,
+  useContext,
   useRef,
   useState,
+  ReactNode,
 } from "react";
+import { Video } from "./VideoCard";
 
-import { useNowPlaying } from "./NowPlayingProvider";
-import { useInfiniteVideos } from "@/lib/useInfiniteVideos";
-import type { Video } from "./VideoCard";
+type NowPlayingContextType = {
+  nowPlaying: Video | null;
+  play: (video: Video) => void;
+  stop: () => void;
+  pausedByOverlay: boolean;
+  pauseForOverlay: () => void;
+  resumeFromOverlay: () => void;
+};
 
-declare global {
-  interface Window {
-    YT?: any;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
+const NowPlayingContext = createContext<NowPlayingContextType>({
+  nowPlaying: null,
+  play: () => {},
+  stop: () => {},
+  pausedByOverlay: false,
+  pauseForOverlay: () => {},
+  resumeFromOverlay: () => {},
+});
 
-function formatTime(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) {
-    return "0:00";
-  }
+export function NowPlayingProvider({ children }: { children: ReactNode }) {
+  const [nowPlaying, setNowPlaying] = useState<Video | null>(null);
+  const [pausedByOverlay, setPausedByOverlay] = useState(false);
 
-  const totalSeconds = Math.floor(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainingSeconds = totalSeconds % 60;
+  // More than one playback surface can request that the persistent music
+  // player pause. Counting those requests prevents an inner surface from
+  // resuming music while another video or Shorts feed is still open.
+  const overlayPauseCountRef = useRef(0);
 
-  return `${minutes}:${remainingSeconds
-    .toString()
-    .padStart(2, "0")}`;
-}
+  const play = useCallback((video: Video) => {
+    setPausedByOverlay(false);
+    overlayPauseCountRef.current = 0;
+    setNowPlaying(video);
+  }, []);
 
-export default function MiniPlayer() {
-  const { nowPlaying, play, stop, pausedByOverlay } = useNowPlaying();
+  const stop = useCallback(() => {
+    setPausedByOverlay(false);
+    overlayPauseCountRef.current = 0;
+    setNowPlaying(null);
+  }, []);
 
-  const playerContainerRef =
-    useRef<HTMLDivElement>(null);
+  const pauseForOverlay = useCallback(() => {
+    overlayPauseCountRef.current += 1;
+    setPausedByOverlay(true);
+  }, []);
 
-  const playerRef = useRef<any>(null);
-  const timerRef =
-    useRef<ReturnType<typeof setInterval> | null>(
-      null
+  const resumeFromOverlay = useCallback(() => {
+    overlayPauseCountRef.current = Math.max(
+      0,
+      overlayPauseCountRef.current - 1
     );
 
-  const [isReady, setIsReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const isPlayingRef = useRef(true);
-  const wasPlayingBeforeOverlayRef = useRef(false);
-  const [currentTime, setCurrentTime] =
-    useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isSeeking, setIsSeeking] =
-    useState(false);
-  const [seekValue, setSeekValue] =
-    useState(0);
-  const [similarExpanded, setSimilarExpanded] =
-    useState(true);
-
-  isPlayingRef.current = isPlaying;
-
-  const {
-    videos: similarVideos,
-    loading: similarLoading,
-    search: searchSimilar,
-    loadMore: loadMoreSimilar,
-    hasMore: hasMoreSimilar,
-  } = useInfiniteVideos(nowPlaying?.title || "");
-
-  const lastSimilarSearchIdRef = useRef(
-    nowPlaying?.id
-  );
-  const similarListRef = useRef<HTMLDivElement>(null);
-  const similarSentinelRef = useRef<HTMLDivElement>(null);
-
-  // Whenever the playing track changes, refresh the similar-videos list to
-  // match it (the hook only auto-fetches once, on this component's first
-  // mount, so later track changes need an explicit re-search).
-  useEffect(() => {
-    if (
-      !nowPlaying ||
-      lastSimilarSearchIdRef.current === nowPlaying.id
-    ) {
-      return;
-    }
-
-    lastSimilarSearchIdRef.current = nowPlaying.id;
-    setSimilarExpanded(true);
-    searchSimilar(nowPlaying.title);
-  }, [nowPlaying, searchSimilar]);
-
-  // Auto-load more similar videos as the person scrolls near the bottom of
-  // the list, the way YouTube's own "up next" list does.
-  useEffect(() => {
-    const list = similarListRef.current;
-    const sentinel = similarSentinelRef.current;
-
-    if (!similarExpanded || !list || !sentinel) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          loadMoreSimilar();
-        }
-      },
-      { root: list, threshold: 0.1 }
-    );
-
-    observer.observe(sentinel);
-
-    return () => observer.disconnect();
-  }, [similarExpanded, loadMoreSimilar]);
-
-  useEffect(() => {
-    if (!nowPlaying) {
-      return;
-    }
-
-    let cancelled = false;
-
-    function loadYouTubeAPI() {
-      return new Promise<void>((resolve) => {
-        if (window.YT?.Player) {
-          resolve();
-          return;
-        }
-
-        const existingScript =
-          document.querySelector<HTMLScriptElement>(
-            'script[src="https://www.youtube.com/iframe_api"]'
-          );
-
-        const previousCallback =
-          window.onYouTubeIframeAPIReady;
-
-        window.onYouTubeIframeAPIReady = () => {
-          previousCallback?.();
-          resolve();
-        };
-
-        if (!existingScript) {
-          const script =
-            document.createElement("script");
-
-          script.src =
-            "https://www.youtube.com/iframe_api";
-
-          script.async = true;
-
-          document.body.appendChild(script);
-        }
-      });
-    }
-
-    async function createPlayer() {
-      await loadYouTubeAPI();
-
-      if (
-        cancelled ||
-        !playerContainerRef.current
-      ) {
-        return;
-      }
-
-      playerRef.current?.destroy?.();
-
-      playerContainerRef.current.innerHTML = "";
-
-      const playerElement =
-        document.createElement("div");
-
-      playerElement.id = `mini-youtube-player-${nowPlaying.id}`;
-
-      playerContainerRef.current.appendChild(
-        playerElement
-      );
-
-      playerRef.current = new window.YT.Player(
-        playerElement,
-        {
-          videoId: nowPlaying.id,
-
-          width: "100%",
-          height: "100%",
-
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            rel: 0,
-            modestbranding: 1,
-            playsinline: 1,
-          },
-
-          events: {
-            onReady: (event: any) => {
-              if (cancelled) return;
-
-              setIsReady(true);
-              setIsPlaying(true);
-
-              const videoDuration =
-                event.target.getDuration?.() || 0;
-
-              setDuration(videoDuration);
-
-              event.target.playVideo?.();
-            },
-
-            onStateChange: (event: any) => {
-              if (!window.YT) return;
-
-              setIsPlaying(
-                event.data ===
-                  window.YT.PlayerState.PLAYING
-              );
-
-              if (
-                event.data ===
-                window.YT.PlayerState.ENDED
-              ) {
-                setCurrentTime(0);
-                setSeekValue(0);
-              }
-            },
-          },
-        }
-      );
-    }
-
-    createPlayer();
-
-    return () => {
-      cancelled = true;
-
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-
-      playerRef.current?.destroy?.();
-      playerRef.current = null;
-
-      setIsReady(false);
-      setCurrentTime(0);
-      setDuration(0);
-      setSeekValue(0);
-    };
-  }, [nowPlaying?.id]);
-
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !isReady) return;
-
-    if (pausedByOverlay) {
-      wasPlayingBeforeOverlayRef.current =
-        isPlayingRef.current;
-
-      if (isPlayingRef.current) {
-        player.pauseVideo?.();
-      }
-    } else if (
-      wasPlayingBeforeOverlayRef.current
-    ) {
-      wasPlayingBeforeOverlayRef.current = false;
-      player.playVideo?.();
-    }
-  }, [pausedByOverlay, isReady]);
-
-  useEffect(() => {
-    if (!isReady) {
-      return;
-    }
-
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-
-    timerRef.current = setInterval(() => {
-      const player = playerRef.current;
-
-      if (!player?.getCurrentTime) {
-        return;
-      }
-
-      const updatedCurrentTime =
-        player.getCurrentTime() || 0;
-
-      const updatedDuration =
-        player.getDuration?.() || 0;
-
-      if (!isSeeking) {
-        setCurrentTime(updatedCurrentTime);
-        setSeekValue(updatedCurrentTime);
-      }
-
-      if (updatedDuration > 0) {
-        setDuration(updatedDuration);
-      }
-    }, 500);
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [isReady, isSeeking]);
-
-  if (!nowPlaying) {
-    return null;
-  }
-
-  function togglePlayback() {
-    const player = playerRef.current;
-
-    if (!player) return;
-
-    if (isPlaying) {
-      player.pauseVideo?.();
-    } else {
-      player.playVideo?.();
-    }
-  }
-
-  function handleSeekChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
-    const value = Number(event.target.value);
-
-    setIsSeeking(true);
-    setSeekValue(value);
-    setCurrentTime(value);
-  }
-
-  function finishSeeking() {
-    playerRef.current?.seekTo?.(
-      seekValue,
-      true
-    );
-
-    setCurrentTime(seekValue);
-    setIsSeeking(false);
-  }
-
-  function skip(seconds: number) {
-    const player = playerRef.current;
-
-    if (!player) return;
-
-    const nextTime = Math.min(
-      Math.max(
-        (player.getCurrentTime?.() || 0) +
-          seconds,
-        0
-      ),
-      duration || Number.MAX_SAFE_INTEGER
-    );
-
-    player.seekTo?.(nextTime, true);
-
-    setCurrentTime(nextTime);
-    setSeekValue(nextTime);
-  }
-
-  function handleStop() {
-    playerRef.current?.stopVideo?.();
-    stop();
-  }
-
-  function playSimilar(video: Video) {
-    const currentSection = (nowPlaying.section || "music").toLowerCase();
-    const isImmersive =
-      nowPlaying.mediaType === "audio" ||
-      currentSection === "immersive audio" ||
-      currentSection === "immersive-audio";
-
-    play({
-      ...video,
-      section: isImmersive ? "immersive audio" : "music",
-      mediaType: isImmersive ? "audio" : "music",
-    });
-
-    setSimilarExpanded(true);
-  }
-
-  const visibleSimilarVideos = similarVideos.filter(
-    (video) => video.id !== nowPlaying.id
-  );
+    setPausedByOverlay(overlayPauseCountRef.current > 0);
+  }, []);
 
   return (
-    <section className="mini-player">
-      <div className="mini-player-main">
-        <img
-          src={nowPlaying.thumbnail}
-          alt={nowPlaying.title}
-          className="mini-player-thumbnail"
-        />
-
-        <div className="mini-player-info">
-          <p className="mini-player-title">{nowPlaying.title}</p>
-          <p className="mini-player-channel">{nowPlaying.channel}</p>
-        </div>
-
-        <div className="mini-player-controls">
-          <button
-            type="button"
-            onClick={() => skip(-10)}
-            className="mini-control-button"
-            aria-label="Go back 10 seconds"
-            title="Back 10 seconds"
-          >
-            ↶ 10
-          </button>
-
-          <button
-            type="button"
-            onClick={togglePlayback}
-            className="mini-play-button"
-            disabled={!isReady}
-            aria-label={isPlaying ? "Pause music" : "Play music"}
-          >
-            {isPlaying ? "❚❚" : "▶"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => skip(10)}
-            className="mini-control-button"
-            aria-label="Go forward 10 seconds"
-            title="Forward 10 seconds"
-          >
-            10 ↷
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSimilarExpanded((current) => !current)}
-            className={`mini-control-button mini-similar-toggle${
-              similarExpanded ? " expanded" : ""
-            }`}
-            aria-label={
-              similarExpanded ? "Hide similar videos" : "Show similar videos"
-            }
-            aria-expanded={similarExpanded}
-            title={
-              similarExpanded ? "Hide similar videos" : "Show similar videos"
-            }
-          >
-            <span className="mini-similar-label">Similar</span>
-            <span aria-hidden="true">{similarExpanded ? "⌄" : "⌃"}</span>
-          </button>
-        </div>
-
-        <div
-          ref={playerContainerRef}
-          className="mini-player-youtube"
-          aria-hidden="true"
-        />
-
-        <button
-          type="button"
-          onClick={handleStop}
-          className="mini-stop-button"
-          aria-label="Stop music"
-        >
-          ✕
-          <span>Stop</span>
-        </button>
-      </div>
-
-      <div className="mini-player-progress-row">
-        <span className="mini-player-time">{formatTime(currentTime)}</span>
-
-        <input
-          type="range"
-          min="0"
-          max={duration || 0}
-          step="0.1"
-          value={Math.min(seekValue, duration || seekValue) || 0}
-          onChange={handleSeekChange}
-          onMouseUp={finishSeeking}
-          onTouchEnd={finishSeeking}
-          onKeyUp={finishSeeking}
-          disabled={!isReady || duration <= 0}
-          className="mini-player-slider"
-          aria-label="Music playback position"
-        />
-
-        <span className="mini-player-time">{formatTime(duration)}</span>
-      </div>
-
-      {similarExpanded && (
-        <div className="mini-player-similar-panel">
-          <div className="mini-player-similar-header">
-            <div>
-              <h3>Similar videos</h3>
-              <p>Keep scrolling to load more recommendations.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSimilarExpanded(false)}
-              aria-label="Close similar videos"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="mini-player-similar-list" ref={similarListRef}>
-            {visibleSimilarVideos.map((video) => (
-              <button
-                type="button"
-                key={video.id}
-                className="mini-player-similar-item"
-                onClick={() => playSimilar(video)}
-              >
-                <img src={video.thumbnail} alt="" loading="lazy" />
-                <span>
-                  <strong>{video.title}</strong>
-                  <small>{video.channel}</small>
-                </span>
-                <b aria-hidden="true">▶</b>
-              </button>
-            ))}
-
-            <div
-              ref={similarSentinelRef}
-              className="mini-player-similar-sentinel"
-            />
-
-            {similarLoading && (
-              <p className="mini-player-similar-status">Loading more...</p>
-            )}
-
-            {!similarLoading && hasMoreSimilar && (
-              <button
-                type="button"
-                className="mini-player-load-more"
-                onClick={loadMoreSimilar}
-              >
-                Load more similar videos
-              </button>
-            )}
-
-            {!similarLoading &&
-              !hasMoreSimilar &&
-              visibleSimilarVideos.length > 0 && (
-                <p className="mini-player-similar-status">
-                  You have reached the end of these recommendations.
-                </p>
-              )}
-
-            {!similarLoading && visibleSimilarVideos.length === 0 && (
-              <p className="mini-player-similar-status">
-                Looking for similar videos...
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
+    <NowPlayingContext.Provider
+      value={{
+        nowPlaying,
+        play,
+        stop,
+        pausedByOverlay,
+        pauseForOverlay,
+        resumeFromOverlay,
+      }}
+    >
+      {children}
+    </NowPlayingContext.Provider>
   );
+}
+
+export function useNowPlaying() {
+  return useContext(NowPlayingContext);
 }
