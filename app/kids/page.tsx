@@ -3,6 +3,7 @@ import { useState } from "react";
 import SearchBar from "@/components/SearchBar";
 import VideoCard,{Video} from "@/components/VideoCard";
 import TrendingRow from "@/components/TrendingRow";
+import ShortsRow from "@/components/ShortsRow";
 import VideoPlayer from "@/components/VideoPlayer";
 import { useAuth } from "@/components/AuthProvider";
 import { logHistory } from "@/lib/history";
@@ -24,6 +25,21 @@ export default function Kids(){
       <button className={`refresh-btn${refreshing?" spinning":""}`} onClick={handleRefresh} disabled={refreshing} title="Refresh content" aria-label="Refresh content"><RefreshIcon size={20}/><span className="refresh-label">Refresh</span></button>
     </div>
     {!hasSearched && <TrendingRow title="🔥 Trending Kids" section="kids" onPlay={handlePlay}/>}
+    {!hasSearched && (
+      <>
+        <div className="shorts-heading-row">
+          <div>
+            <span className="shorts-kicker">Just for kids</span>
+            <h2>Kids Shorts</h2>
+          </div>
+        </div>
+        <ShortsRow
+          forcedCategory="kids"
+          onPlay={handlePlay}
+          onWatch={(video) => logHistory(user, video, "kids")}
+        />
+      </>
+    )}
     <div className="video-grid">{videos.map(v=><VideoCard key={v.id} video={v} section="kids" onPlay={handlePlay}/>)}</div>
     {loading&&<p style={{textAlign:"center",color:"#94a3b8"}}>Loading...</p>}
     {!loading&&hasMore&&<button className="load-more-btn" onClick={loadMore}>Load More</button>}
