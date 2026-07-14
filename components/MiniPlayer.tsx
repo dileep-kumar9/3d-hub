@@ -1,384 +1,564 @@
 "use client";
 
 import {
-  createContext,
-  useCallback,
-  useContext,
+  useEffect,
   useRef,
   useState,
-  ReactNode,
 } from "react";
-import { Video } from "./VideoCard";"use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Video } from "./VideoCard";
 import { useNowPlaying } from "./NowPlayingProvider";
+import { useInfiniteVideos } from "@/lib/useInfiniteVideos";
+import type { Video } from "./VideoCard";
 
-type Props = {
-  video: Video | null;
-  onClose: () => void;
-};
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
 
-type LockableOrientation = ScreenOrientation & {
-  lock?: (orientation: "landscape" | "portrait") => Promise<void>;
-  unlock?: () => void;
-};
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "0:00";
+  }
 
-export default function VideoPlayer({
-  video,
-  onClose,
-}: Props) {
-  const playerRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  const pushedHistoryRef = useRef(false);
-  const { pauseForOverlay, resumeFromOverlay } = useNowPlaying();
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
 
-  onCloseRef.current = onClose;
+  return `${minutes}:${remainingSeconds
+    .toString()
+    .padStart(2, "0")}`;
+}
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
+export default function MiniPlayer() {
+  const { nowPlaying, play, stop, pausedByOverlay } = useNowPlaying();
 
-  const isVideoOpen = Boolean(video);
+  const playerContainerRef =
+    useRef<HTMLDivElement>(null);
 
-  // A normal video temporarily takes over playback. Keep the current music
-  // track, position and manual play/pause state intact so it can continue
-  // exactly as it was when the video overlay closes.
-  useEffect(() => {
-    if (!isVideoOpen) return;
-
-    pauseForOverlay();
-
-    return () => {
-      resumeFromOverlay();
-    };
-  }, [isVideoOpen, pauseForOverlay, resumeFromOverlay]);
-
-  // On mobile, the hardware/gesture back button fires a normal browser
-  // "back" navigation. Without this, that would leave the current page
-  // entirely (losing whatever search results or scroll position were
-  // behind the video) instead of just closing the video overlay. Pushing a
-  // history entry when the video opens lets us intercept that back press
-  // with popstate and simply close the overlay, so the page underneath
-  // (and where the user was) is exactly as they left it.
-  useEffect(() => {
-    if (!video) return;
-
-    window.history.pushState(
-      { videoOverlay: true },
-      ""
+  const playerRef = useRef<any>(null);
+  const timerRef =
+    useRef<ReturnType<typeof setInterval> | null>(
+      null
     );
-    pushedHistoryRef.current = true;
 
-    function handlePopState() {
-      pushedHistoryRef.current = false;
-      onCloseRef.current();
+  const [isReady, setIsReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const isPlayingRef = useRef(true);
+  const wasPlayingBeforeOverlayRef = useRef(false);
+  const [currentTime, setCurrentTime] =
+    useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isSeeking, setIsSeeking] =
+    useState(false);
+  const [seekValue, setSeekValue] =
+    useState(0);
+  const [similarExpanded, setSimilarExpanded] =
+    useState(true);
+
+  isPlayingRef.current = isPlaying;
+
+  const {
+    videos: similarVideos,
+    loading: similarLoading,
+    search: searchSimilar,
+    loadMore: loadMoreSimilar,
+    hasMore: hasMoreSimilar,
+  } = useInfiniteVideos(nowPlaying?.title || "");
+
+  const lastSimilarSearchIdRef = useRef(
+    nowPlaying?.id
+  );
+  const similarListRef = useRef<HTMLDivElement>(null);
+  const similarSentinelRef = useRef<HTMLDivElement>(null);
+
+  // Whenever the playing track changes, refresh the similar-videos list to
+  // match it (the hook only auto-fetches once, on this component's first
+  // mount, so later track changes need an explicit re-search).
+  useEffect(() => {
+    if (
+      !nowPlaying ||
+      lastSimilarSearchIdRef.current === nowPlaying.id
+    ) {
+      return;
     }
 
-    window.addEventListener(
-      "popstate",
-      handlePopState
-    );
+    lastSimilarSearchIdRef.current = nowPlaying.id;
+    setSimilarExpanded(true);
+    searchSimilar(nowPlaying.title);
+  }, [nowPlaying, searchSimilar]);
 
-    return () => {
-      window.removeEventListener(
-        "popstate",
-        handlePopState
-      );
-
-      // Closed via our own UI (not the back button) — remove the extra
-      // history entry we added so the next back press behaves normally
-      // instead of just re-closing an already-closed player.
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        window.history.back();
-      }
-    };
-  }, [video]);
-
+  // Auto-load more similar videos as the person scrolls near the bottom of
+  // the list, the way YouTube's own "up next" list does.
   useEffect(() => {
-    function handleFullscreenChange() {
-      const fullscreenActive =
-        document.fullscreenElement === playerRef.current;
+    const list = similarListRef.current;
+    const sentinel = similarSentinelRef.current;
 
-      setIsFullscreen(fullscreenActive);
+    if (!similarExpanded || !list || !sentinel) {
+      return;
+    }
 
-      // Return to the device's normal orientation after fullscreen closes.
-      if (!fullscreenActive) {
-        const orientation =
-          screen.orientation as LockableOrientation;
-
-        try {
-          orientation?.unlock?.();
-        } catch (error) {
-          console.log(
-            "Orientation unlock is not supported:",
-            error
-          );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreSimilar();
         }
-      }
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !document.fullscreenElement) {
-        onClose();
-      }
-    }
-
-    document.addEventListener(
-      "fullscreenchange",
-      handleFullscreenChange
+      },
+      { root: list, threshold: 0.1 }
     );
 
-    window.addEventListener("keydown", handleEscape);
+    observer.observe(sentinel);
 
-    if (video) {
-      document.body.style.overflow = "hidden";
+    return () => observer.disconnect();
+  }, [similarExpanded, loadMoreSimilar]);
+
+  useEffect(() => {
+    if (!nowPlaying) {
+      return;
     }
 
-    return () => {
-      document.removeEventListener(
-        "fullscreenchange",
-        handleFullscreenChange
+    let cancelled = false;
+
+    function loadYouTubeAPI() {
+      return new Promise<void>((resolve) => {
+        if (window.YT?.Player) {
+          resolve();
+          return;
+        }
+
+        const existingScript =
+          document.querySelector<HTMLScriptElement>(
+            'script[src="https://www.youtube.com/iframe_api"]'
+          );
+
+        const previousCallback =
+          window.onYouTubeIframeAPIReady;
+
+        window.onYouTubeIframeAPIReady = () => {
+          previousCallback?.();
+          resolve();
+        };
+
+        if (!existingScript) {
+          const script =
+            document.createElement("script");
+
+          script.src =
+            "https://www.youtube.com/iframe_api";
+
+          script.async = true;
+
+          document.body.appendChild(script);
+        }
+      });
+    }
+
+    async function createPlayer() {
+      await loadYouTubeAPI();
+
+      if (
+        cancelled ||
+        !playerContainerRef.current
+      ) {
+        return;
+      }
+
+      playerRef.current?.destroy?.();
+
+      playerContainerRef.current.innerHTML = "";
+
+      const playerElement =
+        document.createElement("div");
+
+      playerElement.id = `mini-youtube-player-${nowPlaying.id}`;
+
+      playerContainerRef.current.appendChild(
+        playerElement
       );
 
-      window.removeEventListener("keydown", handleEscape);
+      playerRef.current = new window.YT.Player(
+        playerElement,
+        {
+          videoId: nowPlaying.id,
 
-      document.body.style.overflow = "";
+          width: "100%",
+          height: "100%",
 
-      const orientation =
-        screen.orientation as LockableOrientation;
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            rel: 0,
+            modestbranding: 1,
+            playsinline: 1,
+          },
 
-      try {
-        orientation?.unlock?.();
-      } catch {
-        // Ignore unsupported browser behavior.
+          events: {
+            onReady: (event: any) => {
+              if (cancelled) return;
+
+              setIsReady(true);
+              setIsPlaying(true);
+
+              const videoDuration =
+                event.target.getDuration?.() || 0;
+
+              setDuration(videoDuration);
+
+              event.target.playVideo?.();
+            },
+
+            onStateChange: (event: any) => {
+              if (!window.YT) return;
+
+              setIsPlaying(
+                event.data ===
+                  window.YT.PlayerState.PLAYING
+              );
+
+              if (
+                event.data ===
+                window.YT.PlayerState.ENDED
+              ) {
+                setCurrentTime(0);
+                setSeekValue(0);
+              }
+            },
+          },
+        }
+      );
+    }
+
+    createPlayer();
+
+    return () => {
+      cancelled = true;
+
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
+
+      setIsReady(false);
+      setCurrentTime(0);
+      setDuration(0);
+      setSeekValue(0);
+    };
+  }, [nowPlaying?.id]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !isReady) return;
+
+    if (pausedByOverlay) {
+      wasPlayingBeforeOverlayRef.current =
+        isPlayingRef.current;
+
+      if (isPlayingRef.current) {
+        player.pauseVideo?.();
+      }
+    } else if (
+      wasPlayingBeforeOverlayRef.current
+    ) {
+      wasPlayingBeforeOverlayRef.current = false;
+      player.playVideo?.();
+    }
+  }, [pausedByOverlay, isReady]);
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    timerRef.current = setInterval(() => {
+      const player = playerRef.current;
+
+      if (!player?.getCurrentTime) {
+        return;
+      }
+
+      const updatedCurrentTime =
+        player.getCurrentTime() || 0;
+
+      const updatedDuration =
+        player.getDuration?.() || 0;
+
+      if (!isSeeking) {
+        setCurrentTime(updatedCurrentTime);
+        setSeekValue(updatedCurrentTime);
+      }
+
+      if (updatedDuration > 0) {
+        setDuration(updatedDuration);
+      }
+    }, 500);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     };
-  }, [video, onClose]);
+  }, [isReady, isSeeking]);
 
-  if (!video) {
+  if (!nowPlaying) {
     return null;
   }
 
-  async function toggleFullscreen() {
+  function togglePlayback() {
     const player = playerRef.current;
 
     if (!player) return;
 
-    try {
-      if (!document.fullscreenElement) {
-        await player.requestFullscreen();
-
-        const orientation =
-          screen.orientation as LockableOrientation;
-
-        if (orientation?.lock) {
-          try {
-            await orientation.lock("landscape");
-          } catch (error) {
-            // Fullscreen can still work even when orientation locking fails.
-            console.log(
-              "Landscape lock is not supported:",
-              error
-            );
-          }
-        }
-      } else {
-        await document.exitFullscreen();
-
-        const orientation =
-          screen.orientation as LockableOrientation;
-
-        try {
-          orientation?.unlock?.();
-        } catch {
-          // Ignore unsupported browser behavior.
-        }
-      }
-    } catch (error) {
-      console.error("Fullscreen operation failed:", error);
+    if (isPlaying) {
+      player.pauseVideo?.();
+    } else {
+      player.playVideo?.();
     }
   }
 
-  async function handleClose() {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch (error) {
-      console.error("Could not exit fullscreen:", error);
-    }
+  function handleSeekChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const value = Number(event.target.value);
 
-    const orientation =
-      screen.orientation as LockableOrientation;
-
-    try {
-      orientation?.unlock?.();
-    } catch {
-      // Ignore unsupported browser behavior.
-    }
-
-    onClose();
+    setIsSeeking(true);
+    setSeekValue(value);
+    setCurrentTime(value);
   }
+
+  function finishSeeking() {
+    playerRef.current?.seekTo?.(
+      seekValue,
+      true
+    );
+
+    setCurrentTime(seekValue);
+    setIsSeeking(false);
+  }
+
+  function skip(seconds: number) {
+    const player = playerRef.current;
+
+    if (!player) return;
+
+    const nextTime = Math.min(
+      Math.max(
+        (player.getCurrentTime?.() || 0) +
+          seconds,
+        0
+      ),
+      duration || Number.MAX_SAFE_INTEGER
+    );
+
+    player.seekTo?.(nextTime, true);
+
+    setCurrentTime(nextTime);
+    setSeekValue(nextTime);
+  }
+
+  function handleStop() {
+    playerRef.current?.stopVideo?.();
+    stop();
+  }
+
+  function playSimilar(video: Video) {
+    const currentSection = (nowPlaying.section || "music").toLowerCase();
+    const isImmersive =
+      nowPlaying.mediaType === "audio" ||
+      currentSection === "immersive audio" ||
+      currentSection === "immersive-audio";
+
+    play({
+      ...video,
+      section: isImmersive ? "immersive audio" : "music",
+      mediaType: isImmersive ? "audio" : "music",
+    });
+
+    setSimilarExpanded(true);
+  }
+
+  const visibleSimilarVideos = similarVideos.filter(
+    (video) => video.id !== nowPlaying.id
+  );
 
   return (
-    <div className="watch-page">
-      <div className="watch-page-content">
-        <div className="watch-page-toolbar">
+    <section className="mini-player">
+      <div className="mini-player-main">
+        <img
+          src={nowPlaying.thumbnail}
+          alt={nowPlaying.title}
+          className="mini-player-thumbnail"
+        />
+
+        <div className="mini-player-info">
+          <p className="mini-player-title">{nowPlaying.title}</p>
+          <p className="mini-player-channel">{nowPlaying.channel}</p>
+        </div>
+
+        <div className="mini-player-controls">
           <button
             type="button"
-            onClick={handleClose}
-            className="watch-back-button"
+            onClick={() => skip(-10)}
+            className="mini-control-button"
+            aria-label="Go back 10 seconds"
+            title="Back 10 seconds"
           >
-            ← Back
+            ↶ 10
           </button>
 
           <button
             type="button"
-            onClick={toggleFullscreen}
-            className="watch-fullscreen-button"
+            onClick={togglePlayback}
+            className="mini-play-button"
+            disabled={!isReady}
+            aria-label={isPlaying ? "Pause music" : "Play music"}
+          >
+            {isPlaying ? "❚❚" : "▶"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => skip(10)}
+            className="mini-control-button"
+            aria-label="Go forward 10 seconds"
+            title="Forward 10 seconds"
+          >
+            10 ↷
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSimilarExpanded((current) => !current)}
+            className={`mini-control-button mini-similar-toggle${
+              similarExpanded ? " expanded" : ""
+            }`}
             aria-label={
-              isFullscreen
-                ? "Exit fullscreen"
-                : "Enter fullscreen"
+              similarExpanded ? "Hide similar videos" : "Show similar videos"
             }
+            aria-expanded={similarExpanded}
             title={
-              isFullscreen
-                ? "Exit fullscreen"
-                : "Enter fullscreen"
+              similarExpanded ? "Hide similar videos" : "Show similar videos"
             }
           >
-            {isFullscreen
-              ? "🗗 Exit fullscreen"
-              : "⛶ Fullscreen"}
+            <span className="mini-similar-label">Similar</span>
+            <span aria-hidden="true">{similarExpanded ? "⌄" : "⌃"}</span>
           </button>
         </div>
 
         <div
-          ref={playerRef}
-          className="watch-player"
+          ref={playerContainerRef}
+          className="mini-player-youtube"
+          aria-hidden="true"
+        />
+
+        <button
+          type="button"
+          onClick={handleStop}
+          className="mini-stop-button"
+          aria-label="Stop music"
         >
-          <iframe
-            src={`https://www.youtube.com/embed/${video.id}?autoplay=1`}
-            title={video.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-            allowFullScreen
-          />
-        </div>
+          ✕
+          <span>Stop</span>
+        </button>
+      </div>
 
-        <section className="watch-details">
-          <h1>{video.title}</h1>
+      <div className="mini-player-progress-row">
+        <span className="mini-player-time">{formatTime(currentTime)}</span>
 
-          {video.channel && (
-            <p className="watch-channel">
-              {video.channel}
-            </p>
-          )}
+        <input
+          type="range"
+          min="0"
+          max={duration || 0}
+          step="0.1"
+          value={Math.min(seekValue, duration || seekValue) || 0}
+          onChange={handleSeekChange}
+          onMouseUp={finishSeeking}
+          onTouchEnd={finishSeeking}
+          onKeyUp={finishSeeking}
+          disabled={!isReady || duration <= 0}
+          className="mini-player-slider"
+          aria-label="Music playback position"
+        />
 
-          <div className="watch-actions">
+        <span className="mini-player-time">{formatTime(duration)}</span>
+      </div>
+
+      {similarExpanded && (
+        <div className="mini-player-similar-panel">
+          <div className="mini-player-similar-header">
+            <div>
+              <h3>Similar videos</h3>
+              <p>Keep scrolling to load more recommendations.</p>
+            </div>
             <button
               type="button"
-              onClick={toggleFullscreen}
-              className="watch-action-primary"
+              onClick={() => setSimilarExpanded(false)}
+              aria-label="Close similar videos"
             >
-              {isFullscreen
-                ? "🗗 Exit fullscreen"
-                : "⛶ Watch fullscreen"}
+              ✕
             </button>
-
-            <a
-              href={`https://www.youtube.com/watch?v=${video.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="watch-action-secondary">
-              Open on YouTube
-            </a>
           </div>
 
-          <div className="watch-description">
-            <h2>About this video</h2>
+          <div className="mini-player-similar-list" ref={similarListRef}>
+            {visibleSimilarVideos.map((video) => (
+              <button
+                type="button"
+                key={video.id}
+                className="mini-player-similar-item"
+                onClick={() => playSimilar(video)}
+              >
+                <img src={video.thumbnail} alt="" loading="lazy" />
+                <span>
+                  <strong>{video.title}</strong>
+                  <small>{video.channel}</small>
+                </span>
+                <b aria-hidden="true">▶</b>
+              </button>
+            ))}
 
-            <p>
-              This video is streamed through the official YouTube
-              embedded player. Video availability and playback are
-              controlled by YouTube and the content owner.
-            </p>
+            <div
+              ref={similarSentinelRef}
+              className="mini-player-similar-sentinel"
+            />
+
+            {similarLoading && (
+              <p className="mini-player-similar-status">Loading more...</p>
+            )}
+
+            {!similarLoading && hasMoreSimilar && (
+              <button
+                type="button"
+                className="mini-player-load-more"
+                onClick={loadMoreSimilar}
+              >
+                Load more similar videos
+              </button>
+            )}
+
+            {!similarLoading &&
+              !hasMoreSimilar &&
+              visibleSimilarVideos.length > 0 && (
+                <p className="mini-player-similar-status">
+                  You have reached the end of these recommendations.
+                </p>
+              )}
+
+            {!similarLoading && visibleSimilarVideos.length === 0 && (
+              <p className="mini-player-similar-status">
+                Looking for similar videos...
+              </p>
+            )}
           </div>
-        </section>
-      </div>
-    </div>
+        </div>
+      )}
+    </section>
   );
-}
-
-
-type NowPlayingContextType = {
-  nowPlaying: Video | null;
-  play: (video: Video) => void;
-  stop: () => void;
-  pausedByOverlay: boolean;
-  pauseForOverlay: () => void;
-  resumeFromOverlay: () => void;
-};
-
-const NowPlayingContext = createContext<NowPlayingContextType>({
-  nowPlaying: null,
-  play: () => {},
-  stop: () => {},
-  pausedByOverlay: false,
-  pauseForOverlay: () => {},
-  resumeFromOverlay: () => {},
-});
-
-export function NowPlayingProvider({ children }: { children: ReactNode }) {
-  const [nowPlaying, setNowPlaying] = useState<Video | null>(null);
-  const [pausedByOverlay, setPausedByOverlay] = useState(false);
-
-  // More than one playback surface can request that the persistent music
-  // player pause. Counting those requests prevents an inner surface from
-  // resuming music while another video or Shorts feed is still open.
-  const overlayPauseCountRef = useRef(0);
-
-  const play = useCallback((video: Video) => {
-    setPausedByOverlay(false);
-    overlayPauseCountRef.current = 0;
-    setNowPlaying(video);
-  }, []);
-
-  const stop = useCallback(() => {
-    setPausedByOverlay(false);
-    overlayPauseCountRef.current = 0;
-    setNowPlaying(null);
-  }, []);
-
-  const pauseForOverlay = useCallback(() => {
-    overlayPauseCountRef.current += 1;
-    setPausedByOverlay(true);
-  }, []);
-
-  const resumeFromOverlay = useCallback(() => {
-    overlayPauseCountRef.current = Math.max(
-      0,
-      overlayPauseCountRef.current - 1
-    );
-
-    setPausedByOverlay(overlayPauseCountRef.current > 0);
-  }, []);
-
-  return (
-    <NowPlayingContext.Provider
-      value={{
-        nowPlaying,
-        play,
-        stop,
-        pausedByOverlay,
-        pauseForOverlay,
-        resumeFromOverlay,
-      }}
-    >
-      {children}
-    </NowPlayingContext.Provider>
-  );
-}
-
-export function useNowPlaying() {
-  return useContext(NowPlayingContext);
 }
