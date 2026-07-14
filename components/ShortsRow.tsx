@@ -69,6 +69,11 @@ const MAX_CONSECUTIVE_EMPTY_FETCHES = 2;
 type Props = {
   onPlay: (video: Video) => void;
   onWatch?: (video: Video) => void;
+  // When set, this feed only ever shows Shorts from this one category —
+  // no personalization, no blended mixed content. Used for section-scoped
+  // feeds like "Kids Shorts" where showing anything outside the category
+  // would defeat the purpose.
+  forcedCategory?: ShortsCategory;
 };
 
 type YouTubePlayer = {
@@ -595,9 +600,32 @@ function ReelPlayer({
   );
 }
 
-export default function ShortsRow({ onPlay, onWatch }: Props) {
+export default function ShortsRow({
+  onPlay,
+  onWatch,
+  forcedCategory,
+}: Props) {
+  const forcedCategoryRef = useRef(forcedCategory);
+  forcedCategoryRef.current = forcedCategory;
+
   const { addRecent } = useLibrary();
-  const { stop: stopMusic } = useNowPlaying();
+  const {
+    pauseForOverlay,
+    resumeFromOverlay,
+  } = useNowPlaying();
+
+  // Shorts autoplay continuously while this feed is open, so pause (not
+  // stop) any background music for as long as Shorts is on screen, and
+  // hand playback back to the mini-player when the person navigates away.
+  useEffect(() => {
+    pauseForOverlay();
+
+    return () => {
+      resumeFromOverlay();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const feedRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLElement | null>>([]);
   const watchedIdsRef = useRef<Set<string>>(new Set());
@@ -670,7 +698,8 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
       pageToken?: string | null,
       reset = false,
       category?: ShortsCategory | null,
-      forceMixed = false
+      forceMixed = false,
+      bypassCache = reset
     ): Promise<number> => {
       if (!reset && loadingMoreRef.current) {
         return 0;
@@ -709,12 +738,16 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
         // (used as a fallback when a personalized category runs dry) even
         // if a preferred category is currently set. Without this, passing
         // `null` here would fall straight back through to the preferred
-        // category via `??`, defeating the fallback.
-        const activeCategory = reset
-          ? null
-          : forceMixed
-          ? null
-          : category ?? preferredCategoryRef.current;
+        // category via `??`, defeating the fallback. A forcedCategory (a
+        // section-scoped feed like Kids Shorts) overrides all of this —
+        // it should never show anything outside that one category.
+        const activeCategory =
+          forcedCategoryRef.current ||
+          (reset
+            ? null
+            : forceMixed
+            ? null
+            : category ?? preferredCategoryRef.current);
 
         const params = new URLSearchParams({
           mode: "shorts",
@@ -728,7 +761,7 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
           );
         }
 
-        if (reset) {
+        if (bypassCache) {
           params.set(
             "refresh",
             String(Date.now())
@@ -865,12 +898,48 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   );
 
   useEffect(() => {
-    void fetchShortsPage(null, true);
+    // The very first load doesn't need brand-new content this instant — it
+    // can use whatever the server has already cached from recent requests,
+    // which is much faster than a live round trip to YouTube. Only the
+    // explicit "refresh" button (see refreshShorts below) forces a fresh,
+    // uncached fetch.
+    void fetchShortsPage(
+      null,
+      true,
+      undefined,
+      false,
+      false
+    );
   }, [fetchShortsPage]);
 
   const loadMoreShorts = useCallback(async () => {
     if (loadingMoreRef.current) {
       return 0;
+    }
+
+    const forced = forcedCategoryRef.current;
+
+    if (forced) {
+      const token = categoryPageTokenRef.current;
+
+      if (!token) {
+        feedExhaustedRef.current = true;
+        setFeedExhausted(true);
+        return 0;
+      }
+
+      const added = await fetchShortsPage(
+        token,
+        false,
+        forced
+      );
+
+      if (added === 0) {
+        feedExhaustedRef.current = true;
+        setFeedExhausted(true);
+      }
+
+      return added;
     }
 
     const preferred = preferredCategoryRef.current;
@@ -1111,8 +1180,6 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
   }
 
   function markWatched(video: ShortVideo) {
-    stopMusic();
-
     if (
       watchedIdsRef.current.has(video.id)
     ) {
@@ -1130,6 +1197,10 @@ export default function ShortsRow({ onPlay, onWatch }: Props) {
     duration,
     completed,
   }: ShortEngagement) {
+    if (forcedCategoryRef.current) {
+      return;
+    }
+
     const category =
       video.shortsCategory;
 
