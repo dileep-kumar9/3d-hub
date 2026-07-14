@@ -3,7 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Video } from "@/components/VideoCard";
 
-export function useInfiniteVideos(initialQuery: string, extraParams: string = "") {
+export function useInfiniteVideos(
+  initialQuery: string,
+  extraParams: string = "",
+  autoLoad: boolean = true
+) {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -20,7 +24,7 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
       pageToken?: string,
       forceFresh: boolean = false
     ): Promise<boolean> => {
-      if (loadingRef.current) return false;
+      if (loadingRef.current || !queryRef.current.trim()) return false;
 
       loadingRef.current = true;
       setLoading(true);
@@ -30,7 +34,9 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
         if (pageToken) params.set("pageToken", pageToken);
 
         if (extraParams) {
-          new URLSearchParams(extraParams).forEach((value, key) => params.set(key, value));
+          new URLSearchParams(extraParams).forEach((value, key) =>
+            params.set(key, value)
+          );
         }
 
         if (forceFresh) params.set("refresh", Date.now().toString());
@@ -40,7 +46,9 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
         });
 
         if (!response.ok) {
-          throw new Error(`YouTube request failed with status ${response.status}`);
+          throw new Error(
+            `YouTube request failed with status ${response.status}`
+          );
         }
 
         const data = await response.json();
@@ -50,7 +58,10 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
           if (replace) return incoming;
 
           const seen = new Set(current.map((video) => video.id));
-          return [...current, ...incoming.filter((video) => !seen.has(video.id))];
+          return [
+            ...current,
+            ...incoming.filter((video) => !seen.has(video.id)),
+          ];
         });
 
         pageTokenRef.current = data.nextPageToken || undefined;
@@ -68,18 +79,27 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
     [extraParams]
   );
 
-  function search(newQuery: string) {
-    queryRef.current = newQuery;
-    pageTokenRef.current = undefined;
-    hasMoreRef.current = true;
-    setHasMore(true);
-    setHasSearched(true);
-    void fetchPage(true, undefined, false);
-  }
+  const search = useCallback(
+    (newQuery: string) => {
+      const cleanQuery = newQuery.trim();
+
+      queryRef.current = cleanQuery;
+      pageTokenRef.current = undefined;
+      hasMoreRef.current = Boolean(cleanQuery);
+      setHasMore(Boolean(cleanQuery));
+      setHasSearched(true);
+      setVideos([]);
+
+      if (cleanQuery) {
+        void fetchPage(true, undefined, false);
+      }
+    },
+    [fetchPage]
+  );
 
   // Replace the current videos with the next page of results. This makes the
   // refresh button visibly change content instead of requesting the same cached page.
-  async function reload() {
+  const reload = useCallback(async () => {
     const nextPage = pageTokenRef.current;
     const succeeded = await fetchPage(true, nextPage, true);
 
@@ -91,19 +111,34 @@ export function useInfiniteVideos(initialQuery: string, extraParams: string = ""
     }
 
     return succeeded;
-  }
+  }, [fetchPage]);
 
-  function loadMore() {
-    if (hasMoreRef.current && !loadingRef.current && pageTokenRef.current) {
+  const loadMore = useCallback(() => {
+    if (
+      hasMoreRef.current &&
+      !loadingRef.current &&
+      pageTokenRef.current
+    ) {
       void fetchPage(false, pageTokenRef.current, false);
     }
-  }
+  }, [fetchPage]);
 
   useEffect(() => {
-    void fetchPage(true, undefined, false);
+    if (autoLoad && initialQuery.trim()) {
+      queryRef.current = initialQuery;
+      void fetchPage(true, undefined, false);
+    }
     // The initial query is deliberately captured once for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { videos, loading, search, reload, loadMore, hasMore, hasSearched };
+  return {
+    videos,
+    loading,
+    search,
+    reload,
+    loadMore,
+    hasMore,
+    hasSearched,
+  };
 }
