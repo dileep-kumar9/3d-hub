@@ -1,7 +1,7 @@
 :root {
   --bg: #030712;
   --bg-soft: #071021;
-  --surface: #202227;
+  --surface: #0f172a;
   --surface-2: #131e35;
   --surface-3: #1a2744;
   --line: rgba(148, 163, 184, 0.18);
@@ -5367,4 +5367,475 @@ html[data-theme="light"] .mobile-section-menu-grid a.active {
 html[data-theme="light"] .mobile-section-trigger small,
 html[data-theme="light"] .mini-player-similar-header p {
   color: #64748b;
+}
+
+/* =========================================================
+   FINAL PLAYER / KIDS SHORTS / SECTION SWITCHER CORRECTIONS
+   ========================================================= */
+
+/* Keep the music Similar control horizontal and readable. Earlier rules
+   rotated the whole button, which also rotated its text. */
+.mini-similar-toggle,
+.mini-similar-toggle.expanded {
+  transform: none !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+}
+
+.mini-similar-toggle {
+  min-width: 82px;
+  flex-direction: row;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mini-similar-label,
+.mini-similar-arrow {
+  display: inline-block;
+  transform: none !important;
+  writing-mode: horizontal-tb !important;
+}
+
+.mini-similar-arrow {
+  width: 12px;
+  line-height: 1;
+  text-align: center;
+}
+
+/* Compact information area below the full video player. */
+.watch-details-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 15px;
+}
+
+.watch-details-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.watch-details-compact h1 {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: clamp(16px, 2vw, 21px);
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.watch-details-compact .watch-channel {
+  margin-top: 5px;
+  font-size: 11px;
+}
+
+.watch-details-compact .watch-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.watch-details-compact .watch-action-primary,
+.watch-details-compact .watch-action-secondary {
+  min-height: 38px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+/* YouTube-style related videos below every normal video player. */
+.watch-related {
+  width: 100%;
+  max-width: 920px;
+  margin: 18px auto 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(8, 15, 31, 0.92);
+}
+
+.watch-related-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.watch-related-heading h2,
+.watch-related-heading p {
+  margin: 0;
+}
+
+.watch-related-heading h2 {
+  font-size: 17px;
+}
+
+.watch-related-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.watch-related-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.watch-related-card {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: white;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.watch-related-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(139, 92, 246, 0.58);
+}
+
+.watch-related-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.watch-related-card span {
+  display: block;
+  min-width: 0;
+  padding: 9px 10px 10px;
+}
+
+.watch-related-card strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.watch-related-card small {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-related-sentinel {
+  height: 2px;
+}
+
+.watch-related-status {
+  margin: 14px 0 2px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 11px;
+}
+
+.watch-related-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin: 16px auto 0;
+  padding: 8px 18px;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 11px;
+  color: #cffafe;
+  background: rgba(8, 145, 178, 0.13);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+/* The compact full-screen-only Shorts rules previously collapsed the same
+   component when embedded inside Kids. Restore a proper 9:16 viewer here. */
+.kids-shorts-section {
+  width: 100%;
+  min-height: 560px;
+}
+
+.kids-shorts-section .shorts-section {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 560px;
+  padding: 8px 0 24px;
+  overflow: visible;
+}
+
+.kids-shorts-section .shorts-toolbar {
+  width: min(405px, calc(100vw - 48px));
+  height: 38px;
+  margin: 0 auto 8px;
+}
+
+.kids-shorts-section .shorts-refresh-icon {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+}
+
+.kids-shorts-section .reels-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  width: min(100%, 900px);
+  height: auto;
+  min-height: 0;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.kids-shorts-section .reels-vertical-feed {
+  grid-column: 2;
+  width: auto;
+  height: clamp(520px, calc(100dvh - 230px), 720px);
+  min-height: 520px;
+  max-width: calc(100vw - 64px);
+  aspect-ratio: 9 / 16;
+  margin: 0;
+  border-radius: 22px;
+}
+
+.kids-shorts-section .reels-desktop-controls {
+  display: flex;
+  grid-column: 3;
+  margin-left: 14px;
+}
+
+/* Show Change section on desktop and mobile. */
+.mobile-section-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1070;
+  display: block;
+  border: 0;
+  background: rgba(2, 6, 23, 0.52);
+  backdrop-filter: blur(3px);
+}
+
+.mobile-section-switcher {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 1100;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  width: min(330px, calc(100vw - 32px));
+  gap: 9px;
+  transition: bottom 0.2s ease;
+}
+
+.mobile-section-switcher.above-mini-player {
+  bottom: calc(94px + env(safe-area-inset-bottom));
+}
+
+.mobile-section-trigger {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  min-height: 50px;
+  padding: 7px 13px;
+  column-gap: 8px;
+  border: 1px solid rgba(167, 139, 250, 0.55);
+  border-radius: 999px;
+  color: white;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  backdrop-filter: blur(18px);
+}
+
+.mobile-section-trigger-icon {
+  grid-row: 1 / 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: white;
+  background: linear-gradient(135deg, var(--purple), var(--pink));
+  font-size: 13px;
+}
+
+.mobile-section-trigger small {
+  color: #94a3b8;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.mobile-section-menu {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: rgba(7, 16, 34, 0.98);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(22px);
+}
+
+.mobile-section-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+  padding: 2px 3px;
+}
+
+.mobile-section-menu-header strong {
+  font-size: 12px;
+}
+
+.mobile-section-menu-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  background: rgba(148, 163, 184, 0.16);
+  cursor: pointer;
+}
+
+.mobile-section-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.mobile-section-menu-grid a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.86);
+  text-align: center;
+  text-decoration: none;
+  font-size: 10.5px;
+  font-weight: 850;
+}
+
+.mobile-section-menu-grid a.active {
+  color: white;
+  border-color: rgba(236, 72, 153, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.5),
+    rgba(236, 72, 153, 0.28)
+  );
+}
+
+@media (max-width: 760px) {
+  .watch-details-compact {
+    width: calc(100% - 20px);
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .watch-details-compact .watch-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .watch-related {
+    width: calc(100% - 20px);
+    padding: 12px;
+  }
+
+  .watch-related-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .watch-related-card {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+  }
+
+  .watch-related-card img {
+    width: 132px;
+    height: 75px;
+    aspect-ratio: auto;
+  }
+
+  .kids-shorts-section,
+  .kids-shorts-section .shorts-section {
+    min-height: 480px;
+  }
+
+  .kids-shorts-section .shorts-section {
+    padding: 5px 6px 18px;
+  }
+
+  .kids-shorts-section .shorts-toolbar {
+    width: min(360px, calc(100vw - 24px));
+  }
+
+  .kids-shorts-section .reels-stage {
+    display: block;
+    width: 100%;
+  }
+
+  .kids-shorts-section .reels-vertical-feed {
+    width: auto;
+    height: clamp(470px, calc(100dvh - 250px), 650px);
+    min-height: 470px;
+    max-width: calc(100vw - 24px);
+    margin: 0 auto;
+    border-radius: 18px;
+  }
+
+  .kids-shorts-section .reels-desktop-controls {
+    display: none;
+  }
+
+  .mini-similar-toggle {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+
+  .mini-similar-label {
+    display: none;
+  }
+
+  .mobile-section-switcher {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: min(310px, calc(100vw - 24px));
+  }
+
+  .mobile-section-switcher.above-mini-player {
+    bottom: calc(82px + env(safe-area-inset-bottom));
+  }
 }
