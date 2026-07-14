@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Video } from "./VideoCard";
 import { useNowPlaying } from "./NowPlayingProvider";
+import { useInfiniteVideos } from "@/lib/useInfiniteVideos";
 
 type Props = {
   video: Video | null;
@@ -14,43 +15,78 @@ type LockableOrientation = ScreenOrientation & {
   unlock?: () => void;
 };
 
-export default function VideoPlayer({
-  video,
-  onClose,
-}: Props) {
+export default function VideoPlayer({ video, onClose }: Props) {
+  const watchPageRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
+  const relatedSentinelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const pushedHistoryRef = useRef(false);
-  const { stop: stopMusic } = useNowPlaying();
+  const relatedSearchIdRef = useRef<string | null>(null);
+  const { pauseForOverlay, resumeFromOverlay } = useNowPlaying();
 
-  onCloseRef.current = onClose;
-
+  const [activeVideo, setActiveVideo] = useState<Video | null>(video);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Any video opening in this player takes over playback, so pause whatever
-  // was playing in the persistent background music mini-player.
-  useEffect(() => {
-    if (video) {
-      stopMusic();
-    }
-    // Only re-run when a *different* video opens, not on every stopMusic
-    // identity change (it's stable from context, but this keeps intent clear).
-  }, [video, stopMusic]);
+  const {
+    videos: relatedVideos,
+    loading: relatedLoading,
+    search: searchRelated,
+    loadMore: loadMoreRelated,
+    hasMore: hasMoreRelated,
+  } = useInfiniteVideos(video?.title || "", "", false);
 
-  // On mobile, the hardware/gesture back button fires a normal browser
-  // "back" navigation. Without this, that would leave the current page
-  // entirely (losing whatever search results or scroll position were
-  // behind the video) instead of just closing the video overlay. Pushing a
-  // history entry when the video opens lets us intercept that back press
-  // with popstate and simply close the overlay, so the page underneath
-  // (and where the user was) is exactly as they left it.
+  onCloseRef.current = onClose;
+  const isVideoOpen = Boolean(video);
+
+  useEffect(() => {
+    setActiveVideo(video);
+    relatedSearchIdRef.current = null;
+  }, [video]);
+
+  useEffect(() => {
+    if (!activeVideo || !isVideoOpen) return;
+    if (relatedSearchIdRef.current === activeVideo.id) return;
+
+    relatedSearchIdRef.current = activeVideo.id;
+    searchRelated(`${activeVideo.title} similar videos`);
+  }, [activeVideo, isVideoOpen, searchRelated]);
+
+  // A movie/video pauses persistent music without deleting the track or its
+  // current position. When this player closes, the music remains paused.
+  useEffect(() => {
+    if (!isVideoOpen) return;
+
+    pauseForOverlay();
+    return () => resumeFromOverlay();
+  }, [isVideoOpen, pauseForOverlay, resumeFromOverlay]);
+
+  // Automatically request the next recommendations when the bottom of the
+  // related list becomes visible inside this full-page player.
+  useEffect(() => {
+    const root = watchPageRef.current;
+    const sentinel = relatedSentinelRef.current;
+
+    if (!isVideoOpen || !root || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreRelated();
+        }
+      },
+      { root, rootMargin: "0px 0px 320px 0px", threshold: 0.01 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isVideoOpen, loadMoreRelated, relatedVideos.length]);
+
+  // Make the mobile browser back gesture close only the player, preserving
+  // the underlying page and its scroll position.
   useEffect(() => {
     if (!video) return;
 
-    window.history.pushState(
-      { videoOverlay: true },
-      ""
-    );
+    window.history.pushState({ videoOverlay: true }, "");
     pushedHistoryRef.current = true;
 
     function handlePopState() {
@@ -58,20 +94,11 @@ export default function VideoPlayer({
       onCloseRef.current();
     }
 
-    window.addEventListener(
-      "popstate",
-      handlePopState
-    );
+    window.addEventListener("popstate", handlePopState);
 
     return () => {
-      window.removeEventListener(
-        "popstate",
-        handlePopState
-      );
+      window.removeEventListener("popstate", handlePopState);
 
-      // Closed via our own UI (not the back button) — remove the extra
-      // history entry we added so the next back press behaves normally
-      // instead of just re-closing an already-closed player.
       if (pushedHistoryRef.current) {
         pushedHistoryRef.current = false;
         window.history.back();
@@ -86,33 +113,24 @@ export default function VideoPlayer({
 
       setIsFullscreen(fullscreenActive);
 
-      // Return to the device's normal orientation after fullscreen closes.
       if (!fullscreenActive) {
-        const orientation =
-          screen.orientation as LockableOrientation;
+        const orientation = screen.orientation as LockableOrientation;
 
         try {
           orientation?.unlock?.();
         } catch (error) {
-          console.log(
-            "Orientation unlock is not supported:",
-            error
-          );
+          console.log("Orientation unlock is not supported:", error);
         }
       }
     }
 
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape" && !document.fullscreenElement) {
-        onClose();
+        onCloseRef.current();
       }
     }
 
-    document.addEventListener(
-      "fullscreenchange",
-      handleFullscreenChange
-    );
-
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
     window.addEventListener("keydown", handleEscape);
 
     if (video) {
@@ -124,13 +142,10 @@ export default function VideoPlayer({
         "fullscreenchange",
         handleFullscreenChange
       );
-
       window.removeEventListener("keydown", handleEscape);
-
       document.body.style.overflow = "";
 
-      const orientation =
-        screen.orientation as LockableOrientation;
+      const orientation = screen.orientation as LockableOrientation;
 
       try {
         orientation?.unlock?.();
@@ -138,41 +153,32 @@ export default function VideoPlayer({
         // Ignore unsupported browser behavior.
       }
     };
-  }, [video, onClose]);
+  }, [video]);
 
-  if (!video) {
+  if (!video || !activeVideo) {
     return null;
   }
 
   async function toggleFullscreen() {
     const player = playerRef.current;
-
     if (!player) return;
 
     try {
       if (!document.fullscreenElement) {
         await player.requestFullscreen();
 
-        const orientation =
-          screen.orientation as LockableOrientation;
-
+        const orientation = screen.orientation as LockableOrientation;
         if (orientation?.lock) {
           try {
             await orientation.lock("landscape");
           } catch (error) {
-            // Fullscreen can still work even when orientation locking fails.
-            console.log(
-              "Landscape lock is not supported:",
-              error
-            );
+            console.log("Landscape lock is not supported:", error);
           }
         }
       } else {
         await document.exitFullscreen();
 
-        const orientation =
-          screen.orientation as LockableOrientation;
-
+        const orientation = screen.orientation as LockableOrientation;
         try {
           orientation?.unlock?.();
         } catch {
@@ -193,9 +199,7 @@ export default function VideoPlayer({
       console.error("Could not exit fullscreen:", error);
     }
 
-    const orientation =
-      screen.orientation as LockableOrientation;
-
+    const orientation = screen.orientation as LockableOrientation;
     try {
       orientation?.unlock?.();
     } catch {
@@ -205,8 +209,24 @@ export default function VideoPlayer({
     onClose();
   }
 
+  function playRelated(nextVideo: Video) {
+    setActiveVideo({
+      ...nextVideo,
+      section: activeVideo?.section || nextVideo.section || "home",
+      mediaType: "video",
+    });
+
+    window.requestAnimationFrame(() => {
+      watchPageRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  const visibleRelatedVideos = relatedVideos.filter(
+    (item) => item.id !== activeVideo.id
+  );
+
   return (
-    <div className="watch-page">
+    <div ref={watchPageRef} className="watch-page">
       <div className="watch-page-content">
         <div className="watch-page-toolbar">
           <button
@@ -222,42 +242,31 @@ export default function VideoPlayer({
             onClick={toggleFullscreen}
             className="watch-fullscreen-button"
             aria-label={
-              isFullscreen
-                ? "Exit fullscreen"
-                : "Enter fullscreen"
+              isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
             }
-            title={
-              isFullscreen
-                ? "Exit fullscreen"
-                : "Enter fullscreen"
-            }
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
           >
-            {isFullscreen
-              ? "🗗 Exit fullscreen"
-              : "⛶ Fullscreen"}
+            {isFullscreen ? "🗗 Exit fullscreen" : "⛶ Fullscreen"}
           </button>
         </div>
 
-        <div
-          ref={playerRef}
-          className="watch-player"
-        >
+        <div ref={playerRef} className="watch-player">
           <iframe
-            src={`https://www.youtube.com/embed/${video.id}?autoplay=1`}
-            title={video.title}
+            key={activeVideo.id}
+            src={`https://www.youtube.com/embed/${activeVideo.id}?autoplay=1&rel=0`}
+            title={activeVideo.title}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
           />
         </div>
 
-        <section className="watch-details">
-          <h1>{video.title}</h1>
-
-          {video.channel && (
-            <p className="watch-channel">
-              {video.channel}
-            </p>
-          )}
+        <section className="watch-details watch-details-compact">
+          <div className="watch-details-copy">
+            <h1>{activeVideo.title}</h1>
+            {activeVideo.channel && (
+              <p className="watch-channel">{activeVideo.channel}</p>
+            )}
+          </div>
 
           <div className="watch-actions">
             <button
@@ -265,29 +274,66 @@ export default function VideoPlayer({
               onClick={toggleFullscreen}
               className="watch-action-primary"
             >
-              {isFullscreen
-                ? "🗗 Exit fullscreen"
-                : "⛶ Watch fullscreen"}
+              {isFullscreen ? "🗗 Exit fullscreen" : "⛶ Fullscreen"}
             </button>
 
             <a
-              href={`https://www.youtube.com/watch?v=${video.id}`}
+              href={`https://www.youtube.com/watch?v=${activeVideo.id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="watch-action-secondary">
+              className="watch-action-secondary"
+            >
               Open on YouTube
             </a>
           </div>
+        </section>
 
-          <div className="watch-description">
-            <h2>About this video</h2>
-
-            <p>
-              This video is streamed through the official YouTube
-              embedded player. Video availability and playback are
-              controlled by YouTube and the content owner.
-            </p>
+        <section className="watch-related" aria-label="Similar videos">
+          <div className="watch-related-heading">
+            <div>
+              <h2>Similar videos</h2>
+              <p>More recommendations load as you scroll.</p>
+            </div>
           </div>
+
+          <div className="watch-related-grid">
+            {visibleRelatedVideos.map((item) => (
+              <button
+                type="button"
+                className="watch-related-card"
+                key={item.id}
+                onClick={() => playRelated(item)}
+              >
+                <img src={item.thumbnail} alt="" loading="lazy" />
+                <span>
+                  <strong>{item.title}</strong>
+                  <small>{item.channel}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div ref={relatedSentinelRef} className="watch-related-sentinel" />
+
+          {relatedLoading && (
+            <p className="watch-related-status">Loading similar videos...</p>
+          )}
+
+          {!relatedLoading && hasMoreRelated && (
+            <button
+              type="button"
+              className="watch-related-load-more"
+              onClick={loadMoreRelated}
+            >
+              Load more similar videos
+            </button>
+          )}
+
+          {!relatedLoading && visibleRelatedVideos.length === 0 && (
+            <p className="watch-related-status">
+              Looking for similar videos...
+            </p>
+          )}
         </section>
       </div>
     </div>
