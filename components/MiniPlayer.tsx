@@ -7,6 +7,8 @@ import {
 } from "react";
 
 import { useNowPlaying } from "./NowPlayingProvider";
+import { useInfiniteVideos } from "@/lib/useInfiniteVideos";
+import type { Video } from "./VideoCard";
 
 declare global {
   interface Window {
@@ -30,7 +32,7 @@ function formatTime(seconds: number) {
 }
 
 export default function MiniPlayer() {
-  const { nowPlaying, stop } = useNowPlaying();
+  const { nowPlaying, play, stop, pausedByOverlay } = useNowPlaying();
 
   const playerContainerRef =
     useRef<HTMLDivElement>(null);
@@ -43,6 +45,8 @@ export default function MiniPlayer() {
 
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
+  const isPlayingRef = useRef(true);
+  const wasPlayingBeforeOverlayRef = useRef(false);
   const [currentTime, setCurrentTime] =
     useState(0);
   const [duration, setDuration] = useState(0);
@@ -50,6 +54,63 @@ export default function MiniPlayer() {
     useState(false);
   const [seekValue, setSeekValue] =
     useState(0);
+  const [similarExpanded, setSimilarExpanded] =
+    useState(false);
+
+  isPlayingRef.current = isPlaying;
+
+  const {
+    videos: similarVideos,
+    loading: similarLoading,
+    search: searchSimilar,
+    loadMore: loadMoreSimilar,
+    hasMore: hasMoreSimilar,
+  } = useInfiniteVideos(nowPlaying?.title || "");
+
+  const lastSimilarSearchIdRef = useRef(
+    nowPlaying?.id
+  );
+  const similarListRef = useRef<HTMLDivElement>(null);
+  const similarSentinelRef = useRef<HTMLDivElement>(null);
+
+  // Whenever the playing track changes, refresh the similar-videos list to
+  // match it (the hook only auto-fetches once, on this component's first
+  // mount, so later track changes need an explicit re-search).
+  useEffect(() => {
+    if (
+      !nowPlaying ||
+      lastSimilarSearchIdRef.current === nowPlaying.id
+    ) {
+      return;
+    }
+
+    lastSimilarSearchIdRef.current = nowPlaying.id;
+    searchSimilar(nowPlaying.title);
+  }, [nowPlaying, searchSimilar]);
+
+  // Auto-load more similar videos as the person scrolls near the bottom of
+  // the list, the way YouTube's own "up next" list does.
+  useEffect(() => {
+    const list = similarListRef.current;
+    const sentinel = similarSentinelRef.current;
+
+    if (!similarExpanded || !list || !sentinel) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreSimilar();
+        }
+      },
+      { root: list, threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [similarExpanded, loadMoreSimilar]);
 
   useEffect(() => {
     if (!nowPlaying) {
@@ -188,6 +249,25 @@ export default function MiniPlayer() {
   }, [nowPlaying?.id]);
 
   useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !isReady) return;
+
+    if (pausedByOverlay) {
+      wasPlayingBeforeOverlayRef.current =
+        isPlayingRef.current;
+
+      if (isPlayingRef.current) {
+        player.pauseVideo?.();
+      }
+    } else if (
+      wasPlayingBeforeOverlayRef.current
+    ) {
+      wasPlayingBeforeOverlayRef.current = false;
+      player.playVideo?.();
+    }
+  }, [pausedByOverlay, isReady]);
+
+  useEffect(() => {
     if (!isReady) {
       return;
     }
@@ -288,8 +368,76 @@ export default function MiniPlayer() {
     stop();
   }
 
+  function playSimilar(video: Video) {
+    play({
+      ...video,
+      section: "music",
+      mediaType: "music",
+    });
+  }
+
   return (
     <section className="mini-player">
+      {similarExpanded && (
+        <div className="mini-player-similar-panel">
+          <div className="mini-player-similar-header">
+            <h3>Similar videos</h3>
+            <button
+              type="button"
+              onClick={() => setSimilarExpanded(false)}
+              aria-label="Close similar videos"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div
+            className="mini-player-similar-list"
+            ref={similarListRef}
+          >
+            {similarVideos
+              .filter((video) => video.id !== nowPlaying.id)
+              .map((video) => (
+                <button
+                  type="button"
+                  key={video.id}
+                  className="mini-player-similar-item"
+                  onClick={() => playSimilar(video)}
+                >
+                  <img
+                    src={video.thumbnail}
+                    alt=""
+                    loading="lazy"
+                  />
+                  <span>
+                    <strong>{video.title}</strong>
+                    <small>{video.channel}</small>
+                  </span>
+                </button>
+              ))}
+
+            <div
+              ref={similarSentinelRef}
+              className="mini-player-similar-sentinel"
+            />
+
+            {similarLoading && (
+              <p className="mini-player-similar-status">
+                Loading more...
+              </p>
+            )}
+
+            {!similarLoading &&
+              !hasMoreSimilar &&
+              similarVideos.length > 0 && (
+                <p className="mini-player-similar-status">
+                  No more similar videos.
+                </p>
+              )}
+          </div>
+        </div>
+      )}
+
       <div className="mini-player-main">
         <img
           src={nowPlaying.thumbnail}
@@ -340,6 +488,31 @@ export default function MiniPlayer() {
             title="Forward 10 seconds"
           >
             10 ↷
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setSimilarExpanded(
+                (current) => !current
+              )
+            }
+            className={`mini-control-button mini-similar-toggle${
+              similarExpanded ? " expanded" : ""
+            }`}
+            aria-label={
+              similarExpanded
+                ? "Hide similar videos"
+                : "Show similar videos"
+            }
+            aria-expanded={similarExpanded}
+            title={
+              similarExpanded
+                ? "Hide similar videos"
+                : "Show similar videos"
+            }
+          >
+            ⌃
           </button>
         </div>
 
