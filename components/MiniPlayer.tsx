@@ -55,7 +55,7 @@ export default function MiniPlayer() {
   const [seekValue, setSeekValue] =
     useState(0);
   const [similarExpanded, setSimilarExpanded] =
-    useState(false);
+    useState(true);
 
   isPlayingRef.current = isPlaying;
 
@@ -85,6 +85,7 @@ export default function MiniPlayer() {
     }
 
     lastSimilarSearchIdRef.current = nowPlaying.id;
+    setSimilarExpanded(true);
     searchSimilar(nowPlaying.title);
   }, [nowPlaying, searchSimilar]);
 
@@ -369,75 +370,27 @@ export default function MiniPlayer() {
   }
 
   function playSimilar(video: Video) {
+    const currentSection = (nowPlaying.section || "music").toLowerCase();
+    const isImmersive =
+      nowPlaying.mediaType === "audio" ||
+      currentSection === "immersive audio" ||
+      currentSection === "immersive-audio";
+
     play({
       ...video,
-      section: "music",
-      mediaType: "music",
+      section: isImmersive ? "immersive audio" : "music",
+      mediaType: isImmersive ? "audio" : "music",
     });
+
+    setSimilarExpanded(true);
   }
+
+  const visibleSimilarVideos = similarVideos.filter(
+    (video) => video.id !== nowPlaying.id
+  );
 
   return (
     <section className="mini-player">
-      {similarExpanded && (
-        <div className="mini-player-similar-panel">
-          <div className="mini-player-similar-header">
-            <h3>Similar videos</h3>
-            <button
-              type="button"
-              onClick={() => setSimilarExpanded(false)}
-              aria-label="Close similar videos"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div
-            className="mini-player-similar-list"
-            ref={similarListRef}
-          >
-            {similarVideos
-              .filter((video) => video.id !== nowPlaying.id)
-              .map((video) => (
-                <button
-                  type="button"
-                  key={video.id}
-                  className="mini-player-similar-item"
-                  onClick={() => playSimilar(video)}
-                >
-                  <img
-                    src={video.thumbnail}
-                    alt=""
-                    loading="lazy"
-                  />
-                  <span>
-                    <strong>{video.title}</strong>
-                    <small>{video.channel}</small>
-                  </span>
-                </button>
-              ))}
-
-            <div
-              ref={similarSentinelRef}
-              className="mini-player-similar-sentinel"
-            />
-
-            {similarLoading && (
-              <p className="mini-player-similar-status">
-                Loading more...
-              </p>
-            )}
-
-            {!similarLoading &&
-              !hasMoreSimilar &&
-              similarVideos.length > 0 && (
-                <p className="mini-player-similar-status">
-                  No more similar videos.
-                </p>
-              )}
-          </div>
-        </div>
-      )}
-
       <div className="mini-player-main">
         <img
           src={nowPlaying.thumbnail}
@@ -446,13 +399,8 @@ export default function MiniPlayer() {
         />
 
         <div className="mini-player-info">
-          <p className="mini-player-title">
-            {nowPlaying.title}
-          </p>
-
-          <p className="mini-player-channel">
-            {nowPlaying.channel}
-          </p>
+          <p className="mini-player-title">{nowPlaying.title}</p>
+          <p className="mini-player-channel">{nowPlaying.channel}</p>
         </div>
 
         <div className="mini-player-controls">
@@ -471,11 +419,7 @@ export default function MiniPlayer() {
             onClick={togglePlayback}
             className="mini-play-button"
             disabled={!isReady}
-            aria-label={
-              isPlaying
-                ? "Pause music"
-                : "Play music"
-            }
+            aria-label={isPlaying ? "Pause music" : "Play music"}
           >
             {isPlaying ? "❚❚" : "▶"}
           </button>
@@ -492,27 +436,20 @@ export default function MiniPlayer() {
 
           <button
             type="button"
-            onClick={() =>
-              setSimilarExpanded(
-                (current) => !current
-              )
-            }
+            onClick={() => setSimilarExpanded((current) => !current)}
             className={`mini-control-button mini-similar-toggle${
               similarExpanded ? " expanded" : ""
             }`}
             aria-label={
-              similarExpanded
-                ? "Hide similar videos"
-                : "Show similar videos"
+              similarExpanded ? "Hide similar videos" : "Show similar videos"
             }
             aria-expanded={similarExpanded}
             title={
-              similarExpanded
-                ? "Hide similar videos"
-                : "Show similar videos"
+              similarExpanded ? "Hide similar videos" : "Show similar videos"
             }
           >
-            ⌃
+            <span className="mini-similar-label">Similar</span>
+            <span aria-hidden="true">{similarExpanded ? "⌄" : "⌃"}</span>
           </button>
         </div>
 
@@ -526,6 +463,7 @@ export default function MiniPlayer() {
           type="button"
           onClick={handleStop}
           className="mini-stop-button"
+          aria-label="Stop music"
         >
           ✕
           <span>Stop</span>
@@ -533,21 +471,14 @@ export default function MiniPlayer() {
       </div>
 
       <div className="mini-player-progress-row">
-        <span className="mini-player-time">
-          {formatTime(currentTime)}
-        </span>
+        <span className="mini-player-time">{formatTime(currentTime)}</span>
 
         <input
           type="range"
           min="0"
           max={duration || 0}
           step="0.1"
-          value={
-            Math.min(
-              seekValue,
-              duration || seekValue
-            ) || 0
-          }
+          value={Math.min(seekValue, duration || seekValue) || 0}
           onChange={handleSeekChange}
           onMouseUp={finishSeeking}
           onTouchEnd={finishSeeking}
@@ -557,10 +488,77 @@ export default function MiniPlayer() {
           aria-label="Music playback position"
         />
 
-        <span className="mini-player-time">
-          {formatTime(duration)}
-        </span>
+        <span className="mini-player-time">{formatTime(duration)}</span>
       </div>
+
+      {similarExpanded && (
+        <div className="mini-player-similar-panel">
+          <div className="mini-player-similar-header">
+            <div>
+              <h3>Similar videos</h3>
+              <p>Keep scrolling to load more recommendations.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSimilarExpanded(false)}
+              aria-label="Close similar videos"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mini-player-similar-list" ref={similarListRef}>
+            {visibleSimilarVideos.map((video) => (
+              <button
+                type="button"
+                key={video.id}
+                className="mini-player-similar-item"
+                onClick={() => playSimilar(video)}
+              >
+                <img src={video.thumbnail} alt="" loading="lazy" />
+                <span>
+                  <strong>{video.title}</strong>
+                  <small>{video.channel}</small>
+                </span>
+                <b aria-hidden="true">▶</b>
+              </button>
+            ))}
+
+            <div
+              ref={similarSentinelRef}
+              className="mini-player-similar-sentinel"
+            />
+
+            {similarLoading && (
+              <p className="mini-player-similar-status">Loading more...</p>
+            )}
+
+            {!similarLoading && hasMoreSimilar && (
+              <button
+                type="button"
+                className="mini-player-load-more"
+                onClick={loadMoreSimilar}
+              >
+                Load more similar videos
+              </button>
+            )}
+
+            {!similarLoading &&
+              !hasMoreSimilar &&
+              visibleSimilarVideos.length > 0 && (
+                <p className="mini-player-similar-status">
+                  You have reached the end of these recommendations.
+                </p>
+              )}
+
+            {!similarLoading && visibleSimilarVideos.length === 0 && (
+              <p className="mini-player-similar-status">
+                Looking for similar videos...
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
