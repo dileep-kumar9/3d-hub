@@ -1,7 +1,7 @@
 :root {
   --bg: #030712;
   --bg-soft: #071021;
-  --surface: #0f172a;
+  --surface: #202227;
   --surface-2: #131e35;
   --surface-3: #1a2744;
   --line: rgba(148, 163, 184, 0.18);
@@ -4960,4 +4960,411 @@ html[data-theme="light"]
   html.theme-is-changing * {
     transition: none !important;
   }
+}
+
+/* =========================================================
+   Kids Shorts view, compact mini-player recommendations and
+   mobile section switching (July 2026 update)
+========================================================= */
+
+.kids-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.kids-page-header > div:first-child {
+  min-width: 0;
+}
+
+.kids-view-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 5px;
+  gap: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.kids-view-switch button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 12px;
+  color: #cbd5e1;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.kids-view-switch button.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--purple), var(--pink));
+  box-shadow: 0 8px 22px rgba(124, 58, 237, 0.28);
+}
+
+.kids-shorts-section {
+  width: 100%;
+  min-height: 0;
+}
+
+/* Keep the information area compact so playback controls and suggestions
+   receive most of the available space. */
+.mini-player {
+  display: flex;
+  flex-direction: column;
+}
+
+.mini-player-main {
+  flex: 0 0 auto;
+}
+
+.mini-player-thumbnail {
+  width: 46px;
+  height: 46px;
+  flex-basis: 46px;
+  border-radius: 9px;
+}
+
+.mini-player-info {
+  flex-basis: 190px;
+}
+
+.mini-player-title {
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.mini-player-channel {
+  margin-top: 2px;
+  font-size: 9.5px;
+}
+
+.mini-similar-toggle {
+  width: auto;
+  min-width: 78px;
+  gap: 5px;
+}
+
+.mini-similar-label {
+  display: inline;
+}
+
+.mini-player-similar-panel {
+  order: 3;
+  max-height: min(38vh, 340px);
+  margin: 9px 0 0;
+}
+
+.mini-player-similar-header {
+  padding: 9px 11px;
+}
+
+.mini-player-similar-header > div {
+  min-width: 0;
+}
+
+.mini-player-similar-header h3 {
+  font-size: 12px;
+}
+
+.mini-player-similar-header p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-player-similar-list {
+  overscroll-behavior: contain;
+}
+
+.mini-player-similar-item {
+  min-height: 54px;
+  margin-bottom: 4px;
+  padding: 6px;
+}
+
+.mini-player-similar-item img {
+  width: 68px;
+  height: 40px;
+  flex-basis: 68px;
+}
+
+.mini-player-similar-item strong {
+  font-size: 11.5px;
+}
+
+.mini-player-similar-item small {
+  font-size: 9.5px;
+}
+
+.mini-player-similar-item > b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border-radius: 50%;
+  color: white;
+  background: rgba(124, 58, 237, 0.82);
+  font-size: 9px;
+}
+
+.mini-player-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(100% - 8px);
+  min-height: 38px;
+  margin: 8px 4px 4px;
+  border: 1px solid rgba(34, 211, 238, 0.38);
+  border-radius: 11px;
+  color: #cffafe;
+  background: rgba(8, 145, 178, 0.13);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.mobile-section-switcher,
+.mobile-section-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .kids-page-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .kids-view-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .kids-view-switch button {
+    width: 100%;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .kids-shorts-view {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .kids-shorts-view .kids-page-header {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .mini-player-thumbnail {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  .mini-player-main {
+    grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  }
+
+  .mini-player-title {
+    font-size: 10.5px;
+  }
+
+  .mini-player-channel {
+    font-size: 8.5px;
+  }
+
+  .mini-similar-toggle {
+    display: inline-flex;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0;
+  }
+
+  .mini-similar-label {
+    display: none;
+  }
+
+  .mini-player-similar-panel {
+    max-height: min(43vh, 360px);
+  }
+
+  .mini-player-similar-header p {
+    max-width: 230px;
+  }
+
+  .mobile-section-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1070;
+    display: block;
+    border: 0;
+    background: rgba(2, 6, 23, 0.52);
+    backdrop-filter: blur(3px);
+  }
+
+  .mobile-section-switcher {
+    position: fixed;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 1100;
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    width: min(310px, calc(100vw - 24px));
+    gap: 9px;
+    transition: bottom 0.2s ease;
+  }
+
+  .mobile-section-switcher.above-mini-player {
+    bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-section-trigger {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    min-height: 48px;
+    padding: 7px 12px;
+    column-gap: 8px;
+    border: 1px solid rgba(167, 139, 250, 0.55);
+    border-radius: 999px;
+    color: white;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-section-trigger-icon {
+    grid-row: 1 / 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: white;
+    background: linear-gradient(135deg, var(--purple), var(--pink));
+    font-size: 13px;
+  }
+
+  .mobile-section-trigger small {
+    color: #94a3b8;
+    font-size: 8px;
+    font-weight: 750;
+  }
+
+  .mobile-section-menu {
+    width: 100%;
+    padding: 11px;
+    border: 1px solid var(--line-strong);
+    border-radius: 18px;
+    background: rgba(7, 16, 34, 0.98);
+    box-shadow: 0 20px 54px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(22px);
+  }
+
+  .mobile-section-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+    padding: 2px 3px;
+  }
+
+  .mobile-section-menu-header strong {
+    font-size: 12px;
+  }
+
+  .mobile-section-menu-header button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    color: white;
+    background: rgba(148, 163, 184, 0.16);
+  }
+
+  .mobile-section-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .mobile-section-menu-grid a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 7px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    color: #dbeafe;
+    background: rgba(15, 23, 42, 0.86);
+    text-align: center;
+    text-decoration: none;
+    font-size: 10.5px;
+    font-weight: 850;
+  }
+
+  .mobile-section-menu-grid a.active {
+    color: white;
+    border-color: rgba(236, 72, 153, 0.55);
+    background: linear-gradient(
+      135deg,
+      rgba(124, 58, 237, 0.5),
+      rgba(236, 72, 153, 0.28)
+    );
+  }
+}
+
+html[data-theme="light"] .kids-view-switch,
+html[data-theme="light"] .mobile-section-menu,
+html[data-theme="light"] .mobile-section-trigger {
+  color: #111827;
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(255, 255, 255, 0.97);
+}
+
+html[data-theme="light"] .kids-view-switch button {
+  color: #475569;
+}
+
+html[data-theme="light"] .kids-view-switch button.active {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .mobile-section-menu-grid a {
+  color: #334155;
+  border-color: rgba(15, 23, 42, 0.13);
+  background: #f8fafc;
+}
+
+html[data-theme="light"] .mobile-section-menu-grid a.active {
+  color: #111827;
+}
+
+html[data-theme="light"] .mobile-section-trigger small,
+html[data-theme="light"] .mini-player-similar-header p {
+  color: #64748b;
 }
