@@ -9,6 +9,7 @@ import { LibraryProvider } from "@/components/LibraryProvider";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 import MusicMiniPlayer from "@/components/MusicMiniPlayer";
+import MobileSectionSwitcher from "@/components/MobileSectionSwitcher";
 import Analytics from "@/components/Analytics";
 
 const siteUrl = "https://3d-hub-lac.vercel.app/";
@@ -218,6 +219,7 @@ export default function RootLayout({
                   </div>
                 </div>
 
+                <MobileSectionSwitcher />
                 <MusicMiniPlayer />
               </SidebarProvider>
             </LibraryProvider>
