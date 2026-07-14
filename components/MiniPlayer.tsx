@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
+import { useEffect, useRef, useState } from "react";
 import { useNowPlaying } from "./NowPlayingProvider";
 import { useInfiniteVideos } from "@/lib/useInfiniteVideos";
 import type { Video } from "./VideoCard";
@@ -26,38 +21,22 @@ function formatTime(seconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const remainingSeconds = totalSeconds % 60;
 
-  return `${minutes}:${remainingSeconds
-    .toString()
-    .padStart(2, "0")}`;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
 export default function MiniPlayer() {
   const { nowPlaying, play, stop, pausedByOverlay } = useNowPlaying();
-
-  const playerContainerRef =
-    useRef<HTMLDivElement>(null);
-
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const timerRef =
-    useRef<ReturnType<typeof setInterval> | null>(
-      null
-    );
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
-  const isPlayingRef = useRef(true);
-  const wasPlayingBeforeOverlayRef = useRef(false);
-  const [currentTime, setCurrentTime] =
-    useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isSeeking, setIsSeeking] =
-    useState(false);
-  const [seekValue, setSeekValue] =
-    useState(0);
-  const [similarExpanded, setSimilarExpanded] =
-    useState(true);
-
-  isPlayingRef.current = isPlaying;
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
+  const [similarExpanded, setSimilarExpanded] = useState(false);
 
   const {
     videos: similarVideos,
@@ -65,32 +44,19 @@ export default function MiniPlayer() {
     search: searchSimilar,
     loadMore: loadMoreSimilar,
     hasMore: hasMoreSimilar,
-  } = useInfiniteVideos(nowPlaying?.title || "");
+  } = useInfiniteVideos(nowPlaying?.title || "", "", false);
 
-  const lastSimilarSearchIdRef = useRef(
-    nowPlaying?.id
-  );
+  const lastSimilarSearchIdRef = useRef<string | null>(null);
   const similarListRef = useRef<HTMLDivElement>(null);
   const similarSentinelRef = useRef<HTMLDivElement>(null);
 
-  // Whenever the playing track changes, refresh the similar-videos list to
-  // match it (the hook only auto-fetches once, on this component's first
-  // mount, so later track changes need an explicit re-search).
+  // A new track always starts with recommendations closed. The list is only
+  // requested and shown after the user explicitly presses Similar.
   useEffect(() => {
-    if (
-      !nowPlaying ||
-      lastSimilarSearchIdRef.current === nowPlaying.id
-    ) {
-      return;
-    }
+    setSimilarExpanded(false);
+    lastSimilarSearchIdRef.current = null;
+  }, [nowPlaying?.id]);
 
-    lastSimilarSearchIdRef.current = nowPlaying.id;
-    setSimilarExpanded(true);
-    searchSimilar(nowPlaying.title);
-  }, [nowPlaying, searchSimilar]);
-
-  // Auto-load more similar videos as the person scrolls near the bottom of
-  // the list, the way YouTube's own "up next" list does.
   useEffect(() => {
     const list = similarListRef.current;
     const sentinel = similarSentinelRef.current;
@@ -109,7 +75,6 @@ export default function MiniPlayer() {
     );
 
     observer.observe(sentinel);
-
     return () => observer.disconnect();
   }, [similarExpanded, loadMoreSimilar]);
 
@@ -127,13 +92,10 @@ export default function MiniPlayer() {
           return;
         }
 
-        const existingScript =
-          document.querySelector<HTMLScriptElement>(
-            'script[src="https://www.youtube.com/iframe_api"]'
-          );
-
-        const previousCallback =
-          window.onYouTubeIframeAPIReady;
+        const existingScript = document.querySelector<HTMLScriptElement>(
+          'script[src="https://www.youtube.com/iframe_api"]'
+        );
+        const previousCallback = window.onYouTubeIframeAPIReady;
 
         window.onYouTubeIframeAPIReady = () => {
           previousCallback?.();
@@ -141,14 +103,9 @@ export default function MiniPlayer() {
         };
 
         if (!existingScript) {
-          const script =
-            document.createElement("script");
-
-          script.src =
-            "https://www.youtube.com/iframe_api";
-
+          const script = document.createElement("script");
+          script.src = "https://www.youtube.com/iframe_api";
           script.async = true;
-
           document.body.appendChild(script);
         }
       });
@@ -157,79 +114,54 @@ export default function MiniPlayer() {
     async function createPlayer() {
       await loadYouTubeAPI();
 
-      if (
-        cancelled ||
-        !playerContainerRef.current
-      ) {
+      if (cancelled || !playerContainerRef.current) {
         return;
       }
 
       playerRef.current?.destroy?.();
-
       playerContainerRef.current.innerHTML = "";
 
-      const playerElement =
-        document.createElement("div");
-
+      const playerElement = document.createElement("div");
       playerElement.id = `mini-youtube-player-${nowPlaying.id}`;
+      playerContainerRef.current.appendChild(playerElement);
 
-      playerContainerRef.current.appendChild(
-        playerElement
-      );
+      playerRef.current = new window.YT.Player(playerElement, {
+        videoId: nowPlaying.id,
+        width: "100%",
+        height: "100%",
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+        },
+        events: {
+          onReady: (event: any) => {
+            if (cancelled) return;
 
-      playerRef.current = new window.YT.Player(
-        playerElement,
-        {
-          videoId: nowPlaying.id,
-
-          width: "100%",
-          height: "100%",
-
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            rel: 0,
-            modestbranding: 1,
-            playsinline: 1,
+            setIsReady(true);
+            setIsPlaying(true);
+            setDuration(event.target.getDuration?.() || 0);
+            event.target.playVideo?.();
           },
+          onStateChange: (event: any) => {
+            if (!window.YT) return;
 
-          events: {
-            onReady: (event: any) => {
-              if (cancelled) return;
+            setIsPlaying(
+              event.data === window.YT.PlayerState.PLAYING
+            );
 
-              setIsReady(true);
-              setIsPlaying(true);
-
-              const videoDuration =
-                event.target.getDuration?.() || 0;
-
-              setDuration(videoDuration);
-
-              event.target.playVideo?.();
-            },
-
-            onStateChange: (event: any) => {
-              if (!window.YT) return;
-
-              setIsPlaying(
-                event.data ===
-                  window.YT.PlayerState.PLAYING
-              );
-
-              if (
-                event.data ===
-                window.YT.PlayerState.ENDED
-              ) {
-                setCurrentTime(0);
-                setSeekValue(0);
-              }
-            },
+            if (event.data === window.YT.PlayerState.ENDED) {
+              setCurrentTime(0);
+              setSeekValue(0);
+            }
           },
-        }
-      );
+        },
+      });
     }
 
-    createPlayer();
+    void createPlayer();
 
     return () => {
       cancelled = true;
@@ -249,23 +181,14 @@ export default function MiniPlayer() {
     };
   }, [nowPlaying?.id]);
 
+  // Opening a movie/video pauses the current music at its exact position.
+  // Closing that video intentionally leaves the music paused; the user can
+  // press Play whenever they want to continue it.
   useEffect(() => {
     const player = playerRef.current;
-    if (!player || !isReady) return;
+    if (!player || !isReady || !pausedByOverlay) return;
 
-    if (pausedByOverlay) {
-      wasPlayingBeforeOverlayRef.current =
-        isPlayingRef.current;
-
-      if (isPlayingRef.current) {
-        player.pauseVideo?.();
-      }
-    } else if (
-      wasPlayingBeforeOverlayRef.current
-    ) {
-      wasPlayingBeforeOverlayRef.current = false;
-      player.playVideo?.();
-    }
+    player.pauseVideo?.();
   }, [pausedByOverlay, isReady]);
 
   useEffect(() => {
@@ -279,16 +202,10 @@ export default function MiniPlayer() {
 
     timerRef.current = setInterval(() => {
       const player = playerRef.current;
+      if (!player?.getCurrentTime) return;
 
-      if (!player?.getCurrentTime) {
-        return;
-      }
-
-      const updatedCurrentTime =
-        player.getCurrentTime() || 0;
-
-      const updatedDuration =
-        player.getDuration?.() || 0;
+      const updatedCurrentTime = player.getCurrentTime() || 0;
+      const updatedDuration = player.getDuration?.() || 0;
 
       if (!isSeeking) {
         setCurrentTime(updatedCurrentTime);
@@ -314,7 +231,6 @@ export default function MiniPlayer() {
 
   function togglePlayback() {
     const player = playerRef.current;
-
     if (!player) return;
 
     if (isPlaying) {
@@ -324,42 +240,29 @@ export default function MiniPlayer() {
     }
   }
 
-  function handleSeekChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
+  function handleSeekChange(event: React.ChangeEvent<HTMLInputElement>) {
     const value = Number(event.target.value);
-
     setIsSeeking(true);
     setSeekValue(value);
     setCurrentTime(value);
   }
 
   function finishSeeking() {
-    playerRef.current?.seekTo?.(
-      seekValue,
-      true
-    );
-
+    playerRef.current?.seekTo?.(seekValue, true);
     setCurrentTime(seekValue);
     setIsSeeking(false);
   }
 
   function skip(seconds: number) {
     const player = playerRef.current;
-
     if (!player) return;
 
     const nextTime = Math.min(
-      Math.max(
-        (player.getCurrentTime?.() || 0) +
-          seconds,
-        0
-      ),
+      Math.max((player.getCurrentTime?.() || 0) + seconds, 0),
       duration || Number.MAX_SAFE_INTEGER
     );
 
     player.seekTo?.(nextTime, true);
-
     setCurrentTime(nextTime);
     setSeekValue(nextTime);
   }
@@ -367,6 +270,19 @@ export default function MiniPlayer() {
   function handleStop() {
     playerRef.current?.stopVideo?.();
     stop();
+  }
+
+  function toggleSimilar() {
+    const nextExpanded = !similarExpanded;
+    setSimilarExpanded(nextExpanded);
+
+    if (
+      nextExpanded &&
+      lastSimilarSearchIdRef.current !== nowPlaying.id
+    ) {
+      lastSimilarSearchIdRef.current = nowPlaying.id;
+      searchSimilar(`${nowPlaying.title} similar`);
+    }
   }
 
   function playSimilar(video: Video) {
@@ -381,8 +297,6 @@ export default function MiniPlayer() {
       section: isImmersive ? "immersive audio" : "music",
       mediaType: isImmersive ? "audio" : "music",
     });
-
-    setSimilarExpanded(true);
   }
 
   const visibleSimilarVideos = similarVideos.filter(
@@ -407,7 +321,7 @@ export default function MiniPlayer() {
           <button
             type="button"
             onClick={() => skip(-10)}
-            className="mini-control-button"
+            className="mini-control-button mini-skip-button"
             aria-label="Go back 10 seconds"
             title="Back 10 seconds"
           >
@@ -427,7 +341,7 @@ export default function MiniPlayer() {
           <button
             type="button"
             onClick={() => skip(10)}
-            className="mini-control-button"
+            className="mini-control-button mini-skip-button"
             aria-label="Go forward 10 seconds"
             title="Forward 10 seconds"
           >
@@ -436,7 +350,7 @@ export default function MiniPlayer() {
 
           <button
             type="button"
-            onClick={() => setSimilarExpanded((current) => !current)}
+            onClick={toggleSimilar}
             className={`mini-control-button mini-similar-toggle${
               similarExpanded ? " expanded" : ""
             }`}
@@ -449,7 +363,9 @@ export default function MiniPlayer() {
             }
           >
             <span className="mini-similar-label">Similar</span>
-            <span aria-hidden="true">{similarExpanded ? "⌄" : "⌃"}</span>
+            <span className="mini-similar-arrow" aria-hidden="true">
+              {similarExpanded ? "▴" : "▾"}
+            </span>
           </button>
         </div>
 
@@ -495,13 +411,13 @@ export default function MiniPlayer() {
         <div className="mini-player-similar-panel">
           <div className="mini-player-similar-header">
             <div>
-              <h3>Similar videos</h3>
-              <p>Keep scrolling to load more recommendations.</p>
+              <h3>Similar music</h3>
+              <p>Scroll to load more recommendations.</p>
             </div>
             <button
               type="button"
               onClick={() => setSimilarExpanded(false)}
-              aria-label="Close similar videos"
+              aria-label="Close similar music"
             >
               ✕
             </button>
@@ -539,7 +455,7 @@ export default function MiniPlayer() {
                 className="mini-player-load-more"
                 onClick={loadMoreSimilar}
               >
-                Load more similar videos
+                Load more similar music
               </button>
             )}
 
@@ -553,7 +469,7 @@ export default function MiniPlayer() {
 
             {!similarLoading && visibleSimilarVideos.length === 0 && (
               <p className="mini-player-similar-status">
-                Looking for similar videos...
+                Looking for similar music...
               </p>
             )}
           </div>
