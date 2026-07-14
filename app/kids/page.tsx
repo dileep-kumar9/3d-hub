@@ -57,10 +57,10 @@ export default function Kids() {
       <div className="page-header kids-page-header">
         <div>
           <span className="eyebrow">Family-friendly</span>
-          <h1>{view === "shorts" ? "Kids Shorts / Reels" : "Kids"}</h1>
+          <h1>{view === "shorts" ? "Kids Shorts" : "Kids"}</h1>
           <p>
             {view === "shorts"
-              ? "A vertical feed containing only child-friendly Shorts and Reels."
+              ? "A vertical feed containing only child-friendly Kids Shorts."
               : "Cartoons, nursery rhymes, learning and fun Telugu videos for children."}
           </p>
         </div>
@@ -82,13 +82,13 @@ export default function Kids() {
             className={view === "shorts" ? "active" : ""}
             onClick={() => setView("shorts")}
           >
-            Shorts / Reels
+            Kids Shorts
           </button>
         </div>
       </div>
 
       {view === "shorts" ? (
-        <section className="kids-shorts-section" aria-label="Kids Shorts and Reels">
+        <section className="kids-shorts-section" aria-label="Kids Shorts">
           <ShortsRow
             forcedCategory="kids"
             onPlay={handlePlay}
