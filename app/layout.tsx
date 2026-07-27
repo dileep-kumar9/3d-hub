@@ -11,6 +11,8 @@ import Sidebar from "@/components/Sidebar";
 import MusicMiniPlayer from "@/components/MusicMiniPlayer";
 import MobileSectionSwitcher from "@/components/MobileSectionSwitcher";
 import Analytics from "@/components/Analytics";
+import PolicyConsent from "@/components/PolicyConsent";
+import YouTubeDataRetention from "@/components/YouTubeDataRetention";
 
 const siteUrl = "https://3d-hub-lac.vercel.app/";
 
@@ -185,9 +187,11 @@ export default function RootLayout({
           }}
         />
 
+        <PolicyConsent />
         <Analytics />
 
         <AuthProvider>
+          <YouTubeDataRetention />
           <NowPlayingProvider>
             <LibraryProvider>
               <SidebarProvider>
