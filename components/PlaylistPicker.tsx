@@ -9,6 +9,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -91,10 +92,44 @@ export default function PlaylistPicker({
     try {
       setSaving(playlist.id);
       setError("");
+      const adding = !playlist.videos[video.id];
+      const now = Date.now();
+      const nextVideos: Record<string, Video & { apiDataRefreshedAt?: string }> = {
+        ...playlist.videos,
+      };
+
+      if (adding) {
+        nextVideos[video.id] = {
+          ...video,
+          savedAt: new Date(now).toISOString(),
+          apiDataRefreshedAt: new Date(now).toISOString(),
+        };
+      } else {
+        delete nextVideos[video.id];
+      }
+
+      const refreshTimes = Object.values(nextVideos).map((item) =>
+        item.apiDataRefreshedAt
+          ? Date.parse(item.apiDataRefreshedAt)
+          : 0
+      );
+      const earliestRefresh = refreshTimes.length
+        ? Math.min(...refreshTimes)
+        : 0;
+
       await updateDoc(doc(db, "users", user.uid, "playlists", playlist.id), {
-        [`videos.${video.id}`]: playlist.videos[video.id]
+        [`videos.${video.id}`]: adding
+          ? nextVideos[video.id]
+          : deleteField(),
+        expiresAt: refreshTimes.length === 0
           ? deleteField()
-          : { ...video, savedAt: new Date().toISOString() },
+          : Timestamp.fromDate(
+              new Date(
+                earliestRefresh > 0
+                  ? earliestRefresh + 29 * 24 * 60 * 60 * 1000
+                  : now + 24 * 60 * 60 * 1000
+              )
+            ),
       });
     } catch (toggleError) {
       console.error(toggleError);
@@ -146,8 +181,17 @@ export default function PlaylistPicker({
           name: trimmed,
           normalizedName: normalized,
           section: video.section || "home",
-          videos: { [video.id]: video },
+          videos: {
+            [video.id]: {
+              ...video,
+              savedAt: new Date().toISOString(),
+              apiDataRefreshedAt: new Date().toISOString(),
+            },
+          },
           createdAt: serverTimestamp(),
+          expiresAt: Timestamp.fromDate(
+            new Date(Date.now() + 29 * 24 * 60 * 60 * 1000)
+          ),
         },
         { merge: true }
       );
