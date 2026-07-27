@@ -5839,3 +5839,70 @@ html[data-theme="light"] .mini-player-similar-header p {
     bottom: calc(82px + env(safe-area-inset-bottom));
   }
 }
+
+/* Music player volume bar and autoplay controls */
+.mini-volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 118px;
+}
+
+.mini-volume-button {
+  flex: 0 0 auto;
+}
+
+.mini-volume-slider {
+  width: 76px;
+  height: 4px;
+  margin: 0;
+  accent-color: var(--pink);
+  cursor: pointer;
+}
+
+.mini-autoplay-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.1);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.mini-autoplay-control input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--pink);
+}
+
+@media (max-width: 768px) {
+  .mini-player-controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .mini-volume-control {
+    min-width: auto;
+  }
+
+  .mini-volume-slider {
+    width: 58px;
+  }
+
+  .mini-autoplay-control {
+    min-height: 32px;
+    padding: 0 7px;
+  }
+
+  .mini-autoplay-control span {
+    display: none;
+  }
+}
