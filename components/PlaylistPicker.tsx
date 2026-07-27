@@ -14,13 +14,18 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "./AuthProvider";
-import { Video } from "./VideoCard";
+import type { Video } from "./VideoCard";
 import { CloseIcon, PlaylistIcon } from "./Icons";
+
+type StoredPlaylistVideo = Video & {
+  savedAt?: string;
+  apiDataRefreshedAt?: string;
+};
 
 type Playlist = {
   id: string;
   name: string;
-  videos: Record<string, Video>;
+  videos: Record<string, StoredPlaylistVideo>;
   section?: string;
 };
 
@@ -37,10 +42,11 @@ function playlistDocumentId(name: string) {
     hash = Math.imul(hash, 16777619);
   }
 
-  const readable = normalized
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "playlist";
+  const readable =
+    normalized
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "playlist";
 
   return `${readable}-${(hash >>> 0).toString(36)}`;
 }
@@ -53,6 +59,7 @@ export default function PlaylistPicker({
   onClose: () => void;
 }) {
   const { user } = useAuth();
+
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [newName, setNewName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -61,40 +68,55 @@ export default function PlaylistPicker({
 
   useEffect(() => {
     if (!user) {
+      setPlaylists([]);
       setLoading(false);
       return;
     }
 
-    return onSnapshot(
+    setLoading(true);
+
+    const unsubscribe = onSnapshot(
       collection(db, "users", user.uid, "playlists"),
       (snapshot) => {
-        setPlaylists(
-          snapshot.docs.map((playlist) => ({
+        const loadedPlaylists: Playlist[] = snapshot.docs.map((playlist) => {
+          const data = playlist.data();
+
+          return {
             id: playlist.id,
-            name: playlist.data().name || "Untitled playlist",
-            videos: playlist.data().videos || {},
-            section: playlist.data().section || "home",
-          }))
-        );
+            name: data.name || "Untitled playlist",
+            videos:
+              (data.videos as Record<string, StoredPlaylistVideo> | undefined) ||
+              {},
+            section: data.section || "home",
+          };
+        });
+
+        setPlaylists(loadedPlaylists);
         setLoading(false);
       },
       (snapshotError) => {
+        console.error(snapshotError);
         setError("Playlists could not be loaded. Check Firestore rules.");
         setLoading(false);
-        console.error(snapshotError);
       }
     );
+
+    return unsubscribe;
   }, [user]);
 
-  if (!user) return null;
+  if (!user) {
+    return null;
+  }
 
   async function toggle(playlist: Playlist) {
     try {
       setSaving(playlist.id);
       setError("");
+
       const adding = !playlist.videos[video.id];
       const now = Date.now();
-      const nextVideos: Record<string, Video & { apiDataRefreshedAt?: string }> = {
+
+      const nextVideos: Record<string, StoredPlaylistVideo> = {
         ...playlist.videos,
       };
 
@@ -108,29 +130,39 @@ export default function PlaylistPicker({
         delete nextVideos[video.id];
       }
 
-      const refreshTimes = Object.values(nextVideos).map((item) =>
-        item.apiDataRefreshedAt
-          ? Date.parse(item.apiDataRefreshedAt)
-          : 0
-      );
-      const earliestRefresh = refreshTimes.length
-        ? Math.min(...refreshTimes)
-        : 0;
+      const refreshTimes = Object.values(nextVideos)
+        .map((item) => {
+          if (!item.apiDataRefreshedAt) {
+            return 0;
+          }
 
-      await updateDoc(doc(db, "users", user.uid, "playlists", playlist.id), {
-        [`videos.${video.id}`]: adding
-          ? nextVideos[video.id]
-          : deleteField(),
-        expiresAt: refreshTimes.length === 0
-          ? deleteField()
-          : Timestamp.fromDate(
-              new Date(
-                earliestRefresh > 0
-                  ? earliestRefresh + 29 * 24 * 60 * 60 * 1000
-                  : now + 24 * 60 * 60 * 1000
-              )
-            ),
-      });
+          const parsedTime = Date.parse(item.apiDataRefreshedAt);
+          return Number.isNaN(parsedTime) ? 0 : parsedTime;
+        })
+        .filter((time) => time > 0);
+
+      const earliestRefresh =
+        refreshTimes.length > 0 ? Math.min(...refreshTimes) : 0;
+
+      await updateDoc(
+        doc(db, "users", user.uid, "playlists", playlist.id),
+        {
+          [`videos.${video.id}`]: adding
+            ? nextVideos[video.id]
+            : deleteField(),
+
+          expiresAt:
+            Object.keys(nextVideos).length === 0
+              ? deleteField()
+              : Timestamp.fromDate(
+                  new Date(
+                    earliestRefresh > 0
+                      ? earliestRefresh + 29 * 24 * 60 * 60 * 1000
+                      : now + 29 * 24 * 60 * 60 * 1000
+                  )
+                ),
+        }
+      );
     } catch (toggleError) {
       console.error(toggleError);
       setError("Could not update that playlist.");
@@ -142,7 +174,10 @@ export default function PlaylistPicker({
   async function create() {
     const trimmed = newName.trim().replace(/\s+/g, " ");
     const normalized = normalizePlaylistName(trimmed);
-    if (!trimmed || loading) return;
+
+    if (!trimmed || loading) {
+      return;
+    }
 
     const localDuplicate = playlists.some(
       (playlist) => normalizePlaylistName(playlist.name) === normalized
@@ -159,14 +194,16 @@ export default function PlaylistPicker({
       setSaving("new");
       setError("");
 
-      // Recheck Firestore immediately before writing so stale browser state cannot
-      // create a duplicate. The deterministic document ID also protects against
-      // two devices creating the same name at the same time.
-      const latest = await getDocs(collection(db, "users", user.uid, "playlists"));
-      const remoteDuplicate = latest.docs.some(
-        (playlist) =>
-          normalizePlaylistName(playlist.data().name || "Untitled playlist") === normalized
+      const latest = await getDocs(
+        collection(db, "users", user.uid, "playlists")
       );
+
+      const remoteDuplicate = latest.docs.some((playlist) => {
+        const playlistName =
+          playlist.data().name || "Untitled playlist";
+
+        return normalizePlaylistName(playlistName) === normalized;
+      });
 
       if (remoteDuplicate) {
         setError(
@@ -175,25 +212,36 @@ export default function PlaylistPicker({
         return;
       }
 
+      const now = Date.now();
+      const storedVideo: StoredPlaylistVideo = {
+        ...video,
+        savedAt: new Date(now).toISOString(),
+        apiDataRefreshedAt: new Date(now).toISOString(),
+      };
+
       await setDoc(
-        doc(db, "users", user.uid, "playlists", playlistDocumentId(trimmed)),
+        doc(
+          db,
+          "users",
+          user.uid,
+          "playlists",
+          playlistDocumentId(trimmed)
+        ),
         {
           name: trimmed,
           normalizedName: normalized,
           section: video.section || "home",
           videos: {
-            [video.id]: {
-              ...video,
-              savedAt: new Date().toISOString(),
-              apiDataRefreshedAt: new Date().toISOString(),
-            },
+            [video.id]: storedVideo,
           },
           createdAt: serverTimestamp(),
           expiresAt: Timestamp.fromDate(
-            new Date(Date.now() + 29 * 24 * 60 * 60 * 1000)
+            new Date(now + 29 * 24 * 60 * 60 * 1000)
           ),
         },
-        { merge: true }
+        {
+          merge: true,
+        }
       );
 
       setNewName("");
@@ -207,16 +255,26 @@ export default function PlaylistPicker({
 
   return (
     <div className="picker-backdrop" onClick={onClose}>
-      <section className="playlist-picker" onClick={(event) => event.stopPropagation()}>
+      <section
+        className="playlist-picker"
+        onClick={(event) => event.stopPropagation()}
+      >
         <header>
           <div className="picker-title">
             <PlaylistIcon />
+
             <div>
               <h3>Add to Playlist</h3>
               <p>Choose exactly where this item should be saved.</p>
             </div>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close playlist picker">
+
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close playlist picker"
+          >
             <CloseIcon />
           </button>
         </header>
@@ -227,28 +285,46 @@ export default function PlaylistPicker({
           <p className="muted">Loading playlists...</p>
         ) : (
           <div className="playlist-options">
-            {playlists.map((playlist) => (
-              <button
-                key={playlist.id}
-                className={playlist.videos[video.id] ? "selected" : ""}
-                onClick={() => toggle(playlist)}
-                disabled={saving === playlist.id}
-              >
-                <span className="playlist-option-icon">
-                  <PlaylistIcon size={20} />
-                </span>
-                <span>
-                  <strong>{playlist.name}</strong>
-                  <small>
-                    {Object.keys(playlist.videos).length} item
-                    {Object.keys(playlist.videos).length === 1 ? "" : "s"}
-                  </small>
-                </span>
-                <span className="playlist-check">
-                  {saving === playlist.id ? "…" : playlist.videos[video.id] ? "✓" : "+"}
-                </span>
-              </button>
-            ))}
+            {playlists.map((playlist) => {
+              const containsVideo = Boolean(
+                playlist.videos[video.id]
+              );
+
+              const itemCount = Object.keys(
+                playlist.videos
+              ).length;
+
+              return (
+                <button
+                  type="button"
+                  key={playlist.id}
+                  className={containsVideo ? "selected" : ""}
+                  onClick={() => toggle(playlist)}
+                  disabled={saving === playlist.id}
+                >
+                  <span className="playlist-option-icon">
+                    <PlaylistIcon size={20} />
+                  </span>
+
+                  <span>
+                    <strong>{playlist.name}</strong>
+
+                    <small>
+                      {itemCount} item
+                      {itemCount === 1 ? "" : "s"}
+                    </small>
+                  </span>
+
+                  <span className="playlist-check">
+                    {saving === playlist.id
+                      ? "…"
+                      : containsVideo
+                        ? "✓"
+                        : "+"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -260,16 +336,26 @@ export default function PlaylistPicker({
               setError("");
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") create();
+              if (event.key === "Enter") {
+                void create();
+              }
             }}
             placeholder="Create a new playlist"
             maxLength={80}
           />
+
           <button
-            onClick={create}
-            disabled={!newName.trim() || loading || saving === "new"}
+            type="button"
+            onClick={() => void create()}
+            disabled={
+              !newName.trim() ||
+              loading ||
+              saving === "new"
+            }
           >
-            {saving === "new" ? "Creating..." : "Create"}
+            {saving === "new"
+              ? "Creating..."
+              : "Create"}
           </button>
         </div>
       </section>
