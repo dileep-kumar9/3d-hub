@@ -212,6 +212,35 @@ async function getRecentPopularSearch({
   };
 }
 
+
+async function getVideosByIds({
+  apiKey,
+  ids,
+}: {
+  apiKey: string;
+  ids: string[];
+}) {
+  const params = new URLSearchParams({
+    part: "snippet,contentDetails,statistics,status",
+    id: ids.join(","),
+    key: apiKey,
+  });
+
+  const response = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
+    { cache: "no-store" }
+  );
+  const data = await response.json();
+
+  if (!response.ok || data.error) {
+    throw new Error(
+      data.error?.message || "YouTube metadata refresh failed."
+    );
+  }
+
+  return data as { items?: YouTubeItem[] };
+}
+
 const YOUTUBE_SHORTS_CATEGORY_FEEDS: Record<
   string,
   { query: string; order: "date" | "relevance" | "viewCount" }
@@ -702,6 +731,13 @@ export async function GET(req: NextRequest) {
   const apiKey = process.env.YOUTUBE_API_KEY;
 
   if (!apiKey) {
+    if (mode === "refresh") {
+      return NextResponse.json(
+        { videos: [], missingIds: [], error: "YouTube API key is not configured." },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json({
       videos: FALLBACK_VIDEOS,
       isFallback: true,
@@ -709,6 +745,33 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    if (mode === "refresh") {
+      const ids = (searchParams.get("ids") || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter((id) => /^[A-Za-z0-9_-]{6,20}$/.test(id))
+        .slice(0, 50);
+
+      if (ids.length === 0) {
+        return NextResponse.json(
+          { videos: [], missingIds: [], error: "No valid video IDs supplied." },
+          { status: 400 }
+        );
+      }
+
+      const data = await getVideosByIds({ apiKey, ids });
+      const videos = (data.items || [])
+        .map(mapVideo)
+        .filter((video) => video.id && video.thumbnail);
+      const returnedIds = new Set(videos.map((video) => video.id));
+
+      return NextResponse.json({
+        videos,
+        missingIds: ids.filter((id) => !returnedIds.has(id)),
+        source: "youtube-metadata-refresh",
+      });
+    }
+
     if (mode === "shorts") {
       const data =
         await getYouTubeShorts({
@@ -810,6 +873,21 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     console.error("YouTube API request failed:", error);
+
+    if (mode === "refresh") {
+      return NextResponse.json(
+        {
+          videos: [],
+          missingIds: [],
+          error:
+            error instanceof Error
+              ? error.message
+              : "YouTube metadata refresh failed.",
+        },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json({
       videos: FALLBACK_VIDEOS,
       isFallback: true,
