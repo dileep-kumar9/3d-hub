@@ -18,6 +18,7 @@ import {
 
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
+import DeleteMyData from "@/components/DeleteMyData";
 
 type SearchHistoryItem = {
   id: string;
@@ -1106,6 +1107,8 @@ export default function SettingsPage() {
           </>
         ))}
       </section>
+
+      <DeleteMyData />
     </main>
   );
 }
