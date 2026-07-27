@@ -37,6 +37,10 @@ export default function MiniPlayer() {
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
   const [similarExpanded, setSimilarExpanded] = useState(false);
+  const [volume, setVolume] = useState(100);
+  const [isMuted, setIsMuted] = useState(false);
+  const [autoplayEnabled, setAutoplayEnabled] = useState(false);
+  const [autoplayPending, setAutoplayPending] = useState(false);
 
   const {
     videos: similarVideos,
@@ -47,13 +51,37 @@ export default function MiniPlayer() {
   } = useInfiniteVideos(nowPlaying?.title || "", "", false);
 
   const lastSimilarSearchIdRef = useRef<string | null>(null);
+  const autoplayEnabledRef = useRef(false);
+  const volumeRef = useRef(100);
+  const mutedRef = useRef(false);
   const similarListRef = useRef<HTMLDivElement>(null);
   const similarSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedVolume = Number(window.localStorage.getItem("music-volume"));
+    const savedAutoplay = window.localStorage.getItem("music-autoplay") === "true";
+
+    if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 100) {
+      setVolume(savedVolume);
+      setIsMuted(savedVolume === 0);
+      volumeRef.current = savedVolume;
+      mutedRef.current = savedVolume === 0;
+    }
+
+    setAutoplayEnabled(savedAutoplay);
+    autoplayEnabledRef.current = savedAutoplay;
+  }, []);
+
+  useEffect(() => {
+    autoplayEnabledRef.current = autoplayEnabled;
+    window.localStorage.setItem("music-autoplay", String(autoplayEnabled));
+  }, [autoplayEnabled]);
 
   // A new track always starts with recommendations closed. The list is only
   // requested and shown after the user explicitly presses Similar.
   useEffect(() => {
     setSimilarExpanded(false);
+    setAutoplayPending(false);
     lastSimilarSearchIdRef.current = null;
   }, [nowPlaying?.id]);
 
@@ -143,6 +171,12 @@ export default function MiniPlayer() {
             setIsReady(true);
             setIsPlaying(true);
             setDuration(event.target.getDuration?.() || 0);
+            event.target.setVolume?.(volumeRef.current);
+            if (mutedRef.current || volumeRef.current === 0) {
+              event.target.mute?.();
+            } else {
+              event.target.unMute?.();
+            }
             event.target.playVideo?.();
           },
           onStateChange: (event: any) => {
@@ -155,6 +189,15 @@ export default function MiniPlayer() {
             if (event.data === window.YT.PlayerState.ENDED) {
               setCurrentTime(0);
               setSeekValue(0);
+
+              if (autoplayEnabledRef.current) {
+                setAutoplayPending(true);
+
+                if (lastSimilarSearchIdRef.current !== nowPlaying.id) {
+                  lastSimilarSearchIdRef.current = nowPlaying.id;
+                  searchSimilar(`${nowPlaying.title} similar`);
+                }
+              }
             }
           },
         },
@@ -179,7 +222,7 @@ export default function MiniPlayer() {
       setDuration(0);
       setSeekValue(0);
     };
-  }, [nowPlaying?.id]);
+  }, [nowPlaying?.id, searchSimilar]);
 
   // Opening a movie/video pauses the current music at its exact position.
   // Closing that video intentionally leaves the music paused; the user can
@@ -225,6 +268,22 @@ export default function MiniPlayer() {
     };
   }, [isReady, isSeeking]);
 
+
+  useEffect(() => {
+    if (!autoplayPending || !autoplayEnabled || !nowPlaying) {
+      return;
+    }
+
+    const nextVideo = similarVideos.find((video) => video.id !== nowPlaying.id);
+
+    if (!nextVideo) {
+      return;
+    }
+
+    setAutoplayPending(false);
+    playSimilar(nextVideo);
+  }, [autoplayEnabled, autoplayPending, nowPlaying, similarVideos]);
+
   if (!nowPlaying) {
     return null;
   }
@@ -265,6 +324,46 @@ export default function MiniPlayer() {
     player.seekTo?.(nextTime, true);
     setCurrentTime(nextTime);
     setSeekValue(nextTime);
+  }
+
+  function handleVolumeChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const nextVolume = Number(event.target.value);
+    const player = playerRef.current;
+
+    setVolume(nextVolume);
+    setIsMuted(nextVolume === 0);
+    volumeRef.current = nextVolume;
+    mutedRef.current = nextVolume === 0;
+    window.localStorage.setItem("music-volume", String(nextVolume));
+
+    player?.setVolume?.(nextVolume);
+
+    if (nextVolume === 0) {
+      player?.mute?.();
+    } else {
+      player?.unMute?.();
+    }
+  }
+
+  function toggleMute() {
+    const player = playerRef.current;
+    const nextMuted = !isMuted;
+
+    setIsMuted(nextMuted);
+    mutedRef.current = nextMuted;
+
+    if (nextMuted) {
+      player?.mute?.();
+    } else {
+      const restoredVolume = volume === 0 ? 50 : volume;
+      if (volume === 0) {
+        setVolume(restoredVolume);
+        volumeRef.current = restoredVolume;
+        window.localStorage.setItem("music-volume", String(restoredVolume));
+      }
+      player?.setVolume?.(restoredVolume);
+      player?.unMute?.();
+    }
   }
 
   function handleStop() {
@@ -347,6 +446,38 @@ export default function MiniPlayer() {
           >
             10 ↷
           </button>
+
+          <div className="mini-volume-control">
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="mini-control-button mini-volume-button"
+              aria-label={isMuted || volume === 0 ? "Unmute music" : "Mute music"}
+              title={isMuted || volume === 0 ? "Unmute" : "Mute"}
+            >
+              {isMuted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊"}
+            </button>
+
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={isMuted ? 0 : volume}
+              onChange={handleVolumeChange}
+              className="mini-volume-slider"
+              aria-label="Music volume"
+            />
+          </div>
+
+          <label className="mini-autoplay-control">
+            <input
+              type="checkbox"
+              checked={autoplayEnabled}
+              onChange={(event) => setAutoplayEnabled(event.target.checked)}
+            />
+            <span>Autoplay</span>
+          </label>
 
           <button
             type="button"
